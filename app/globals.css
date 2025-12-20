@@ -1,26 +1,46 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Light Mode (Clean Slate) */
+  --bg-main: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-input: #ffffff;
+  --text-main: #0f172a;
+  --text-sub: #64748b;
+  --border: #e2e8f0;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+.dark {
+  /* Dark Mode (Deep Professional SaaS) */
+  --bg-main: #020617; /* Very dark blue/slate */
+  --bg-card: #1e293b; /* Slate 800 */
+  --bg-input: #0f172a; /* Slate 900 */
+  --text-main: #f1f5f9; /* Slate 100 */
+  --text-sub: #94a3b8; /* Slate 400 */
+  --border: #334155; /* Slate 700 */
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* Base Classes for consistent theming */
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background-color: var(--bg-main);
+  color: var(--text-main);
   font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.card-base {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.input-base {
+  background-color: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+}
+
+.text-sub {
+  color: var(--text-sub);
 }

@@ -29,6 +29,16 @@ import {
   Search,
   Filter,
   Menu,
+  ClipboardList,
+  CheckSquare,
+  Square,
+  ArrowRight,
+  Calendar,
+  Clock,
+  Moon,
+  Sun,
+  MapPin,
+  StickyNote,
 } from "lucide-react";
 import emailjs from "@emailjs/browser";
 import { supabase } from "./supabaseClient";
@@ -65,6 +75,16 @@ interface Client {
   notes: string;
 }
 
+interface Task {
+  id: number;
+  client_id: number;
+  title: string;
+  description: string;
+  due_date: string;
+  is_completed: boolean;
+  created_at: string;
+}
+
 interface EmailLog {
   id: number;
   client_name: string;
@@ -87,6 +107,7 @@ export default function Dashboard() {
   const [session, setSession] = useState<any>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [darkMode, setDarkMode] = useState(false);
 
   // Data State
   const [clients, setClients] = useState<Client[]>([]);
@@ -96,6 +117,7 @@ export default function Dashboard() {
     company_name: "ServiceCRM",
     avatar_url: "",
   });
+  const [globalTasks, setGlobalTasks] = useState<Task[]>([]);
 
   // UI State
   const [isLoading, setIsLoading] = useState(true);
@@ -118,6 +140,35 @@ export default function Dashboard() {
   });
   const [isSending, setIsSending] = useState(false);
   const [expandedLogId, setExpandedLogId] = useState<number | null>(null);
+
+  // Task Manager State
+  const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(false);
+  const [activeTaskClient, setActiveTaskClient] = useState<Client | null>(null);
+  const [clientTasks, setClientTasks] = useState<Task[]>([]);
+  const [newTaskInput, setNewTaskInput] = useState("");
+  const [newTaskDesc, setNewTaskDesc] = useState("");
+  const [newTaskDate, setNewTaskDate] = useState("");
+
+  // --- DARK MODE LOGIC ---
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme");
+    if (
+      savedTheme === "dark" ||
+      (!savedTheme && window.matchMedia("(prefers-color-scheme: dark)").matches)
+    ) {
+      setDarkMode(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [darkMode]);
 
   // --- FILTER LOGIC ---
   const filteredClients = clients.filter((client) => {
@@ -161,9 +212,7 @@ export default function Dashboard() {
       .from("clients")
       .select("*")
       .order("created_at", { ascending: false });
-    if (clientsResult.error)
-      alert("Error fetching clients: " + clientsResult.error.message);
-    else if (clientsResult.data) setClients(clientsResult.data);
+    if (clientsResult.data) setClients(clientsResult.data);
 
     const logsResult = await supabase
       .from("email_logs")
@@ -173,6 +222,14 @@ export default function Dashboard() {
 
     const settingsResult = await supabase.from("settings").select("*").single();
     if (settingsResult.data) setSettings(settingsResult.data);
+
+    const tasksResult = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("is_completed", false)
+      .order("due_date", { ascending: true })
+      .limit(20);
+    if (tasksResult.data) setGlobalTasks(tasksResult.data);
 
     setIsLoading(false);
   };
@@ -219,9 +276,8 @@ export default function Dashboard() {
       .from("clients")
       .insert([newClientData])
       .select();
-    if (error) {
-      alert("Error adding client: " + error.message);
-    } else if (data) {
+    if (error) alert("Error adding client: " + error.message);
+    else if (data) {
       setClients([data[0], ...clients]);
       setActiveTab("clients");
       setEditingId(data[0].id);
@@ -248,7 +304,8 @@ export default function Dashboard() {
   };
 
   const deleteClient = async (id: number) => {
-    if (!confirm("Delete this client?")) return;
+    if (!confirm("Delete this client and ALL their tasks?")) return;
+    await supabase.from("tasks").delete().eq("client_id", id);
     const { error } = await supabase.from("clients").delete().eq("id", id);
     if (!error) setClients(clients.filter((c) => c.id !== id));
   };
@@ -264,39 +321,98 @@ export default function Dashboard() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Completed":
-        return "bg-green-100 text-green-700 border-green-200";
+        return "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800";
       case "In Progress":
-        return "bg-blue-100 text-blue-700 border-blue-200";
+        return "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800";
       case "Pending":
-        return "bg-orange-100 text-orange-700 border-orange-200";
+        return "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800";
       default:
-        return "bg-gray-100 text-gray-700 border-gray-200";
+        return "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700";
     }
   };
 
-  // --- INVOICE GENERATOR ---
+  // --- TASK MANAGER LOGIC ---
+  const openTaskDrawer = async (client: Client) => {
+    setActiveTaskClient(client);
+    setIsTaskDrawerOpen(true);
+    setClientTasks([]);
+    const { data } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("client_id", client.id)
+      .order("is_completed", { ascending: true })
+      .order("due_date", { ascending: true });
+    if (data) setClientTasks(data);
+  };
+
+  const addTask = async () => {
+    if (!newTaskInput.trim() || !activeTaskClient) return;
+    const { data } = await supabase
+      .from("tasks")
+      .insert([
+        {
+          client_id: activeTaskClient.id,
+          title: newTaskInput,
+          description: newTaskDesc,
+          due_date: newTaskDate || null,
+          is_completed: false,
+        },
+      ])
+      .select();
+
+    if (data) {
+      const newTask = data[0];
+      setClientTasks([...clientTasks, newTask]);
+      if (newTask.due_date)
+        setGlobalTasks(
+          [...globalTasks, newTask].sort(
+            (a, b) =>
+              new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
+          )
+        );
+      setNewTaskInput("");
+      setNewTaskDesc("");
+      setNewTaskDate("");
+    }
+  };
+
+  const toggleTask = async (task: Task) => {
+    const newStatus = !task.is_completed;
+    setClientTasks(
+      clientTasks.map((t) =>
+        t.id === task.id ? { ...t, is_completed: newStatus } : t
+      )
+    );
+    if (newStatus === true) {
+      setGlobalTasks(globalTasks.filter((t) => t.id !== task.id));
+    }
+    await supabase
+      .from("tasks")
+      .update({ is_completed: newStatus })
+      .eq("id", task.id);
+  };
+
+  const deleteTask = async (taskId: number) => {
+    setClientTasks(clientTasks.filter((t) => t.id !== taskId));
+    setGlobalTasks(globalTasks.filter((t) => t.id !== taskId));
+    await supabase.from("tasks").delete().eq("id", taskId);
+  };
+
+  // --- INVOICE & EMAIL ---
   const generateInvoice = (client: Client) => {
     const doc = new jsPDF();
     doc.setFontSize(20);
     doc.text("INVOICE", 105, 20, { align: "center" });
-
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
     doc.text(settings.company_name || "My Company", 20, 40);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     doc.text(`From: ${settings.full_name || "Admin"}`, 20, 46);
-
     doc.setFont("helvetica", "bold");
     doc.text("Bill To:", 140, 40);
     doc.setFont("helvetica", "normal");
     doc.text(client.name, 140, 46);
-    const splitAddress = doc.splitTextToSize(
-      client.address || "No Address Provided",
-      50
-    );
-    doc.text(splitAddress, 140, 52);
-
     doc.text(`Invoice #: INV-${client.id}`, 20, 70);
     doc.text(
       `Date: ${client.invoice_date || new Date().toLocaleDateString()}`,
@@ -304,27 +420,15 @@ export default function Dashboard() {
       76
     );
     doc.text(`Due Date: ${client.due_date || "-"}`, 20, 82);
-
     autoTable(doc, {
       startY: 90,
       head: [["Description", "Amount"]],
       body: [[client.service, `$${client.price}`]],
       foot: [["Total", `$${client.price}`]],
-      theme: "grid",
     });
-
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
-    if (client.notes) {
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "bold");
-      doc.text("Notes / Terms:", 20, finalY);
-      doc.setFont("helvetica", "normal");
-      doc.text(doc.splitTextToSize(client.notes, 170), 20, finalY + 6);
-    }
     doc.save(`Invoice_${client.name.replace(/\s+/g, "_")}.pdf`);
   };
 
-  // --- EMAIL LOGIC ---
   const openEmailModal = (client: Client) => {
     setEmailData({
       to: client.email,
@@ -383,7 +487,6 @@ export default function Dashboard() {
   );
   const activeJobs = clients.filter((c) => c.status === "In Progress").length;
   const completedJobs = clients.filter((c) => c.status === "Completed").length;
-
   const chartData = clients.reduce((acc: any[], client) => {
     const existing = acc.find((item) => item.name === client.service);
     if (existing) {
@@ -399,7 +502,7 @@ export default function Dashboard() {
 
   if (sessionLoading)
     return (
-      <div className="h-screen flex items-center justify-center">
+      <div className="h-screen flex items-center justify-center bg-[var(--bg-main)]">
         <Loader2 className="animate-spin text-blue-600" />
       </div>
     );
@@ -407,14 +510,142 @@ export default function Dashboard() {
 
   // --- RENDER ---
   return (
-    <div className="flex h-screen bg-gray-50 text-gray-800 font-sans relative">
+    <div className="flex h-screen overflow-hidden font-sans relative transition-colors duration-300 bg-[var(--bg-main)] text-[var(--text-main)]">
+      {/* TASK DRAWER */}
+      {isTaskDrawerOpen && activeTaskClient && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
+            onClick={() => setIsTaskDrawerOpen(false)}
+          ></div>
+          <div className="relative w-full max-w-md h-full shadow-2xl p-6 flex flex-col animate-in slide-in-from-right duration-300 card-base border-l">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-xl font-bold">{activeTaskClient.name}</h2>
+                <p className="text-sub text-sm">Task Manager</p>
+              </div>
+              <button
+                onClick={() => setIsTaskDrawerOpen(false)}
+                className="p-2 hover:opacity-80 rounded-full transition-colors"
+              >
+                <X size={20} className="text-sub" />
+              </button>
+            </div>
+            <div className="mb-2 flex justify-between text-xs font-semibold text-sub">
+              <span>
+                {clientTasks.filter((t) => t.is_completed).length} /{" "}
+                {clientTasks.length} Completed
+              </span>
+            </div>
+            <div className="mb-6 bg-gray-200 dark:bg-slate-700 rounded-full h-2.5 w-full overflow-hidden">
+              <div
+                className="bg-blue-600 h-2.5 rounded-full transition-all duration-500"
+                style={{
+                  width: `${
+                    clientTasks.length > 0
+                      ? (clientTasks.filter((t) => t.is_completed).length /
+                          clientTasks.length) *
+                        100
+                      : 0
+                  }%`,
+                }}
+              ></div>
+            </div>
+
+            <div className="mb-6 space-y-3 p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-main)]">
+              <input
+                type="text"
+                placeholder="Task Title..."
+                className="w-full p-2 rounded-lg text-sm input-base focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                value={newTaskInput}
+                onChange={(e) => setNewTaskInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addTask()}
+              />
+              <textarea
+                placeholder="Details (Optional)"
+                className="w-full p-2 rounded-lg text-sm input-base h-16 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={newTaskDesc}
+                onChange={(e) => setNewTaskDesc(e.target.value)}
+              ></textarea>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type="date"
+                    className="w-full p-2 pl-8 rounded-lg text-sm input-base focus:outline-none focus:ring-2 focus:ring-blue-500 text-sub"
+                    value={newTaskDate}
+                    onChange={(e) => setNewTaskDate(e.target.value)}
+                  />
+                  <Calendar
+                    className="absolute left-2 top-2.5 text-sub"
+                    size={16}
+                  />
+                </div>
+                <button
+                  onClick={addTask}
+                  className="bg-blue-600 text-white px-4 rounded-lg hover:bg-blue-700 font-bold text-sm shadow-sm"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+              {clientTasks.map((task) => (
+                <div
+                  key={task.id}
+                  className={`p-3 rounded-lg border group transition-all ${
+                    task.is_completed
+                      ? "bg-[var(--bg-main)] opacity-70"
+                      : "card-base hover:border-blue-500 shadow-sm"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <button
+                      onClick={() => toggleTask(task)}
+                      className="mt-1 flex-shrink-0 text-sub hover:text-blue-500"
+                    >
+                      {task.is_completed ? (
+                        <CheckSquare size={20} className="text-green-500" />
+                      ) : (
+                        <Square size={20} />
+                      )}
+                    </button>
+                    <div className="flex-1">
+                      <p
+                        className={`text-sm font-medium ${
+                          task.is_completed ? "line-through text-sub" : ""
+                        }`}
+                      >
+                        {task.title}
+                      </p>
+                      {task.due_date && (
+                        <span className="text-xs text-sub flex items-center gap-1 mt-1">
+                          <Clock size={12} />{" "}
+                          {new Date(task.due_date).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => deleteTask(task.id)}
+                      className="text-sub hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* EMAIL MODAL */}
       {isEmailOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="card-base rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4">
             <h3 className="font-semibold text-lg">Send Email</h3>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-sub mb-1">
                 Subject
               </label>
               <input
@@ -423,15 +654,15 @@ export default function Dashboard() {
                 onChange={(e) =>
                   setEmailData({ ...emailData, subject: e.target.value })
                 }
-                className="w-full border p-2 rounded-lg text-sm"
+                className="w-full p-2 rounded-lg text-sm input-base focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-sub mb-1">
                 Message
               </label>
               <textarea
-                className="w-full border p-2 rounded-lg text-sm"
+                className="w-full p-2 rounded-lg text-sm input-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 rows={5}
                 value={emailData.message}
                 onChange={(e) =>
@@ -442,14 +673,14 @@ export default function Dashboard() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setIsEmailOpen(false)}
-                className="px-4 py-2 bg-gray-200 rounded"
+                className="px-4 py-2 bg-[var(--bg-main)] rounded text-sub hover:opacity-80"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSendEmail}
                 disabled={isSending}
-                className="px-4 py-2 bg-blue-600 text-white rounded flex items-center gap-2"
+                className="px-4 py-2 bg-blue-600 text-white rounded flex items-center gap-2 hover:bg-blue-700"
               >
                 {isSending ? (
                   <Loader2 className="animate-spin" size={16} />
@@ -463,9 +694,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* SIDEBAR (Mobile Responsive) */}
+      {/* SIDEBAR */}
       <aside
-        className={`fixed md:static inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 transform transition-transform duration-200 ease-in-out ${
+        className={`fixed md:static inset-y-0 left-0 z-50 w-64 card-base border-r border-[var(--border)] transform transition-transform duration-200 ease-in-out ${
           mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
         } md:translate-x-0 flex flex-col`}
       >
@@ -474,83 +705,53 @@ export default function Dashboard() {
             {settings.company_name}
           </h1>
           <button
-            className="md:hidden text-gray-500"
+            className="md:hidden text-sub"
             onClick={() => setMobileMenuOpen(false)}
           >
             <X size={24} />
           </button>
         </div>
         <nav className="px-4 space-y-2 flex-1">
-          <button
-            onClick={() => {
-              setActiveTab("dashboard");
-              setMobileMenuOpen(false);
-            }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
-              activeTab === "dashboard"
-                ? "bg-blue-50 text-blue-700"
-                : "text-gray-600 hover:bg-gray-100"
-            }`}
-          >
-            <LayoutDashboard size={20} /> Dashboard
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("clients");
-              setMobileMenuOpen(false);
-            }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
-              activeTab === "clients"
-                ? "bg-blue-50 text-blue-700"
-                : "text-gray-600 hover:bg-gray-100"
-            }`}
-          >
-            <Users size={20} /> Clients
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("history");
-              setMobileMenuOpen(false);
-            }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
-              activeTab === "history"
-                ? "bg-blue-50 text-blue-700"
-                : "text-gray-600 hover:bg-gray-100"
-            }`}
-          >
-            <History size={20} /> History
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("settings");
-              setMobileMenuOpen(false);
-            }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
-              activeTab === "settings"
-                ? "bg-blue-50 text-blue-700"
-                : "text-gray-600 hover:bg-gray-100"
-            }`}
-          >
-            <Settings size={20} /> Settings
-          </button>
+          {["dashboard", "clients", "history", "settings"].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => {
+                setActiveTab(tab);
+                setMobileMenuOpen(false);
+              }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors capitalize ${
+                activeTab === tab
+                  ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600"
+                  : "text-sub hover:bg-[var(--bg-main)]"
+              }`}
+            >
+              <LayoutDashboard size={20} /> {tab}
+            </button>
+          ))}
         </nav>
-        <div className="p-4 border-t">
+        <div className="p-4 border-t border-[var(--border)] space-y-2">
+          <button
+            onClick={() => setDarkMode(!darkMode)}
+            className="w-full flex items-center gap-3 px-4 py-2 rounded-lg font-medium text-sub hover:bg-[var(--bg-main)] transition-colors"
+          >
+            {darkMode ? <Sun size={20} /> : <Moon size={20} />}{" "}
+            {darkMode ? "Light Mode" : "Dark Mode"}
+          </button>
           <button
             onClick={handleLogout}
-            className="flex gap-2 text-gray-500 hover:text-red-600"
+            className="w-full flex items-center gap-3 px-4 py-2 rounded-lg font-medium text-sub hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
           >
-            <LogIn className="rotate-180" /> Logout
+            <LogIn className="rotate-180" size={20} /> Logout
           </button>
         </div>
       </aside>
 
       {/* MAIN CONTENT */}
-      <main className="flex-1 overflow-y-auto p-4 md:p-6">
-        {/* Header */}
+      <main className="flex-1 overflow-y-auto p-4 md:p-6 transition-colors duration-200">
         <div className="flex justify-between items-center mb-8">
           <div className="flex items-center gap-3">
             <button
-              className="md:hidden p-2 text-gray-600 bg-white border rounded-lg"
+              className="md:hidden p-2 text-sub card-base rounded-lg"
               onClick={() => setMobileMenuOpen(true)}
             >
               <Menu size={20} />
@@ -559,7 +760,7 @@ export default function Dashboard() {
               <h2 className="text-2xl font-bold capitalize">
                 {activeTab} Overview
               </h2>
-              <p className="text-gray-500 text-sm hidden md:block">
+              <p className="text-sub text-sm hidden md:block">
                 Welcome back, {settings.full_name}
               </p>
             </div>
@@ -569,27 +770,27 @@ export default function Dashboard() {
               <img
                 src={settings.avatar_url}
                 alt="Profile"
-                className="w-10 h-10 rounded-full border border-gray-200 object-cover"
+                className="w-10 h-10 rounded-full border border-[var(--border)] object-cover"
               />
             ) : (
-              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+              <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600">
                 <User size={20} />
               </div>
             )}
             <button
               onClick={fetchAllData}
-              className="p-2 bg-white border rounded-lg hover:bg-gray-50"
+              className="p-2 card-base rounded-lg hover:opacity-80 transition-colors"
               title="Refresh"
             >
               <RefreshCw
                 size={20}
-                className={`text-gray-600 ${isLoading ? "animate-spin" : ""}`}
+                className={`text-sub ${isLoading ? "animate-spin" : ""}`}
               />
             </button>
             {activeTab === "clients" && (
               <button
                 onClick={addFakeClient}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg flex gap-2 items-center text-sm md:text-base"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg flex gap-2 items-center text-sm md:text-base hover:bg-blue-700 transition-colors shadow-sm"
               >
                 <Plus size={18} />{" "}
                 <span className="hidden md:inline">Add Client</span>
@@ -602,81 +803,87 @@ export default function Dashboard() {
         {activeTab === "dashboard" && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
+              <div className="card-base p-6 rounded-xl shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
                 <div>
-                  <p className="text-gray-500 text-sm font-medium">
-                    Total Revenue
-                  </p>
-                  <h3 className="text-2xl font-bold mt-1 text-gray-800">
+                  <p className="text-sub text-sm font-medium">Total Revenue</p>
+                  <h3 className="text-2xl font-bold mt-1">
                     ${totalRevenue.toLocaleString()}
                   </h3>
                 </div>
-                <div className="p-3 bg-blue-50 text-blue-600 rounded-full">
+                <div className="p-3 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-full">
                   <DollarSign size={24} />
                 </div>
               </div>
-              <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
+              <div className="card-base p-6 rounded-xl shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
                 <div>
-                  <p className="text-gray-500 text-sm font-medium">
-                    Active Jobs
-                  </p>
-                  <h3 className="text-2xl font-bold mt-1 text-gray-800">
-                    {activeJobs}
-                  </h3>
+                  <p className="text-sub text-sm font-medium">Active Jobs</p>
+                  <h3 className="text-2xl font-bold mt-1">{activeJobs}</h3>
                 </div>
-                <div className="p-3 bg-orange-50 text-orange-600 rounded-full">
+                <div className="p-3 bg-orange-50 dark:bg-orange-900/30 text-orange-600 rounded-full">
                   <Briefcase size={24} />
                 </div>
               </div>
-              <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
+              <div className="card-base p-6 rounded-xl shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
                 <div>
-                  <p className="text-gray-500 text-sm font-medium">Completed</p>
-                  <h3 className="text-2xl font-bold mt-1 text-gray-800">
-                    {completedJobs}
-                  </h3>
+                  <p className="text-sub text-sm font-medium">Completed</p>
+                  <h3 className="text-2xl font-bold mt-1">{completedJobs}</h3>
                 </div>
-                <div className="p-3 bg-green-50 text-green-600 rounded-full">
+                <div className="p-3 bg-green-50 dark:bg-green-900/30 text-green-600 rounded-full">
                   <CheckCircle size={24} />
                 </div>
               </div>
-              <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
+              <div className="card-base p-6 rounded-xl shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
                 <div>
-                  <p className="text-gray-500 text-sm font-medium">Avg. Deal</p>
-                  <h3 className="text-2xl font-bold mt-1 text-gray-800">
+                  <p className="text-sub text-sm font-medium">Avg. Deal</p>
+                  <h3 className="text-2xl font-bold mt-1">
                     $
                     {clients.length > 0
                       ? Math.round(totalRevenue / clients.length)
                       : 0}
                   </h3>
                 </div>
-                <div className="p-3 bg-purple-50 text-purple-600 rounded-full">
+                <div className="p-3 bg-purple-50 dark:bg-purple-900/30 text-purple-600 rounded-full">
                   <TrendingUp size={24} />
                 </div>
               </div>
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-96">
-              <div className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 flex flex-col">
+
+            <div className="grid grid-cols-1 lg:grid-cols-7 gap-6">
+              {/* Chart */}
+              <div className="card-base p-6 rounded-xl shadow-sm lg:col-span-4 flex flex-col h-[600px]">
                 <h3 className="font-semibold mb-6">Revenue by Service</h3>
                 <div className="flex-1 min-h-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke={darkMode ? "#334155" : "#e2e8f0"}
+                      />
                       <XAxis
                         dataKey="name"
                         fontSize={12}
                         axisLine={false}
                         tickLine={false}
+                        tick={{ fill: darkMode ? "#94a3b8" : "#64748b" }}
                       />
                       <YAxis
                         fontSize={12}
                         axisLine={false}
                         tickLine={false}
                         tickFormatter={(v) => `$${v}`}
+                        tick={{ fill: darkMode ? "#94a3b8" : "#64748b" }}
                       />
-                      <Tooltip />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: darkMode ? "#1e293b" : "#fff",
+                          borderColor: darkMode ? "#334155" : "#e2e8f0",
+                          color: darkMode ? "#fff" : "#000",
+                        }}
+                      />
                       <Bar
                         dataKey="revenue"
-                        fill="#4F46E5"
+                        fill="#3b82f6"
                         radius={[4, 4, 0, 0]}
                         barSize={40}
                       />
@@ -684,31 +891,103 @@ export default function Dashboard() {
                   </ResponsiveContainer>
                 </div>
               </div>
-              <div className="bg-white p-6 rounded-xl border shadow-sm">
-                <h3 className="font-semibold mb-4">Job Status</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="w-3 h-3 rounded-full bg-orange-500"></div>
-                      <span className="text-sm font-medium">In Progress</span>
-                    </div>
-                    <span className="font-bold">{activeJobs}</span>
+
+              {/* Status & Tasks */}
+              <div className="lg:col-span-3 flex flex-col h-[600px] card-base rounded-xl shadow-sm overflow-hidden">
+                <div className="flex border-b border-[var(--border)] divide-x divide-[var(--border)] bg-[var(--bg-main)]">
+                  <div className="flex-1 p-3 text-center">
+                    <span className="block text-xs text-sub uppercase font-bold tracking-wider">
+                      Active
+                    </span>
+                    <span className="text-lg font-bold text-orange-600 dark:text-orange-400">
+                      {activeJobs}
+                    </span>
                   </div>
-                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                      <span className="text-sm font-medium">Completed</span>
-                    </div>
-                    <span className="font-bold">{completedJobs}</span>
+                  <div className="flex-1 p-3 text-center">
+                    <span className="block text-xs text-sub uppercase font-bold tracking-wider">
+                      Done
+                    </span>
+                    <span className="text-lg font-bold text-green-600 dark:text-green-400">
+                      {completedJobs}
+                    </span>
                   </div>
-                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="w-3 h-3 rounded-full bg-gray-400"></div>
-                      <span className="text-sm font-medium">Pending</span>
-                    </div>
-                    <span className="font-bold">
+                  <div className="flex-1 p-3 text-center">
+                    <span className="block text-xs text-sub uppercase font-bold tracking-wider">
+                      Pending
+                    </span>
+                    <span className="text-lg font-bold text-sub">
                       {clients.length - activeJobs - completedJobs}
                     </span>
+                  </div>
+                </div>
+
+                <div className="flex-1 flex flex-col p-6 min-h-0">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <ClipboardList size={18} className="text-blue-500" />{" "}
+                      Priority Tasks
+                    </h3>
+                    <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-1 rounded-full">
+                      {globalTasks.length} Pending
+                    </span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                    {globalTasks.length > 0 ? (
+                      globalTasks.map((task) => {
+                        const clientName =
+                          clients.find((c) => c.id === task.client_id)?.name ||
+                          "Unknown";
+                        return (
+                          <div
+                            key={task.id}
+                            className="p-3 bg-[var(--bg-main)] rounded-lg border border-[var(--border)] hover:border-blue-500 transition-colors cursor-pointer group"
+                            onClick={() => {
+                              const client = clients.find(
+                                (c) => c.id === task.client_id
+                              );
+                              if (client) openTaskDrawer(client);
+                            }}
+                          >
+                            <div className="flex justify-between items-start">
+                              <p className="text-sm font-semibold line-clamp-1 group-hover:text-blue-500">
+                                {task.title}
+                              </p>
+                              {task.due_date && (
+                                <span
+                                  className={`text-[10px] whitespace-nowrap ml-2 ${
+                                    new Date(task.due_date) < new Date()
+                                      ? "text-red-500 font-bold"
+                                      : "text-sub"
+                                  }`}
+                                >
+                                  {new Date(task.due_date).toLocaleDateString(
+                                    undefined,
+                                    { month: "short", day: "numeric" }
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex justify-between items-center mt-1">
+                              <p className="text-xs text-sub font-medium">
+                                {clientName}
+                              </p>
+                              <ArrowRight
+                                size={14}
+                                className="text-sub group-hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-all"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full text-sub text-center">
+                        <CheckCircle
+                          size={32}
+                          className="mb-2 text-green-500"
+                        />
+                        <p>All caught up!</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -719,25 +998,21 @@ export default function Dashboard() {
         {/* CLIENTS TAB */}
         {activeTab === "clients" && (
           <div className="space-y-4">
-            {/* Search & Filter */}
-            <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white p-4 rounded-xl border shadow-sm">
+            <div className="flex flex-col md:flex-row gap-4 justify-between items-center card-base p-4 rounded-xl shadow-sm">
               <div className="relative w-full md:w-96">
-                <Search
-                  className="absolute left-3 top-3 text-gray-400"
-                  size={20}
-                />
+                <Search className="absolute left-3 top-3 text-sub" size={20} />
                 <input
                   type="text"
                   placeholder="Search clients..."
-                  className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-10 pr-4 py-2 rounded-lg input-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
               <div className="flex items-center gap-2 w-full md:w-auto">
-                <Filter className="text-gray-500" size={20} />
+                <Filter className="text-sub" size={20} />
                 <select
-                  className="border p-2 rounded-lg bg-gray-50 text-sm w-full md:w-auto"
+                  className="p-2 rounded-lg input-base text-sm w-full md:w-auto focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
                 >
@@ -748,166 +1023,201 @@ export default function Dashboard() {
                 </select>
               </div>
             </div>
-
-            <div className="bg-white rounded-xl border shadow-sm overflow-hidden overflow-x-auto">
-              <table className="w-full text-left text-sm min-w-[800px]">
-                <thead className="bg-gray-50 text-gray-500">
+            <div className="card-base rounded-xl shadow-sm overflow-hidden overflow-x-auto">
+              <table className="w-full text-left text-sm min-w-[1000px]">
+                <thead className="bg-[var(--bg-main)] text-sub">
                   <tr>
                     <th className="px-6 py-4">Client</th>
                     <th className="px-6 py-4">Service</th>
-                    <th className="px-6 py-4">Price ($)</th>
+                    <th className="px-6 py-4">Billing & Info</th>
                     <th className="px-6 py-4">Status</th>
                     <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody className="divide-y divide-[var(--border)]">
                   {filteredClients.map((client) => (
                     <tr
                       key={client.id}
-                      className="hover:bg-gray-50 transition-colors"
+                      className="hover:bg-[var(--bg-main)] transition-colors"
                     >
                       {editingId === client.id ? (
-                        <>
-                          <td className="px-6 py-4" colSpan={5}>
-                            <div className="grid grid-cols-2 gap-4 bg-blue-50 p-4 rounded-lg shadow-inner">
-                              <div className="space-y-2">
-                                <input
-                                  name="name"
-                                  value={editFormData.name}
-                                  onChange={handleInputChange}
-                                  className="border p-2 w-full rounded text-sm"
-                                  placeholder="Client Name"
-                                />
-                                <input
-                                  name="email"
-                                  value={editFormData.email}
-                                  onChange={handleInputChange}
-                                  className="border p-2 w-full rounded text-sm"
-                                  placeholder="Email Address"
-                                />
-                                <input
-                                  name="phone"
-                                  value={editFormData.phone}
-                                  onChange={handleInputChange}
-                                  className="border p-2 w-full rounded text-sm"
-                                  placeholder="Phone"
-                                />
-                                <textarea
-                                  name="address"
-                                  value={editFormData.address || ""}
-                                  onChange={handleInputChange}
-                                  className="border p-2 w-full rounded text-sm h-20"
-                                  placeholder="Billing Address..."
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <input
-                                  name="service"
-                                  value={editFormData.service}
-                                  onChange={handleInputChange}
-                                  className="border p-2 w-full rounded text-sm font-semibold"
-                                  placeholder="Service Name"
-                                />
-                                <div className="flex gap-2">
-                                  <input
-                                    type="number"
-                                    name="price"
-                                    value={editFormData.price}
-                                    onChange={handleInputChange}
-                                    className="border p-2 w-full rounded text-sm"
-                                    placeholder="Price $"
-                                  />
-                                  <select
-                                    name="status"
-                                    value={editFormData.status}
-                                    onChange={handleInputChange}
-                                    className="border p-2 w-full rounded text-sm"
-                                  >
-                                    <option>Pending</option>
-                                    <option>In Progress</option>
-                                    <option>Completed</option>
-                                  </select>
-                                </div>
-                                <div className="flex gap-2">
-                                  <div className="w-full">
-                                    <label className="text-xs text-gray-500">
-                                      Invoice Date
-                                    </label>
-                                    <input
-                                      type="date"
-                                      name="invoice_date"
-                                      value={editFormData.invoice_date || ""}
-                                      onChange={handleInputChange}
-                                      className="border p-2 w-full rounded text-sm"
-                                    />
-                                  </div>
-                                  <div className="w-full">
-                                    <label className="text-xs text-gray-500">
-                                      Due Date
-                                    </label>
-                                    <input
-                                      type="date"
-                                      name="due_date"
-                                      value={editFormData.due_date || ""}
-                                      onChange={handleInputChange}
-                                      className="border p-2 w-full rounded text-sm"
-                                    />
-                                  </div>
-                                </div>
-                                <textarea
-                                  name="notes"
-                                  value={editFormData.notes || ""}
-                                  onChange={handleInputChange}
-                                  className="border p-2 w-full rounded text-sm h-16"
-                                  placeholder="Payment Terms / Notes..."
-                                />
-                              </div>
-                              <div className="col-span-2 flex justify-end gap-3 mt-2 border-t pt-3 border-blue-200">
-                                <button
-                                  onClick={() => setEditingId(null)}
-                                  className="px-4 py-2 text-gray-600 hover:bg-white rounded"
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  onClick={() => handleSave(client.id)}
-                                  className="px-6 py-2 bg-blue-600 text-white rounded shadow-sm hover:bg-blue-700 flex items-center gap-2"
-                                >
-                                  <Save size={16} /> Save Changes
-                                </button>
-                              </div>
+                        <td className="px-6 py-4" colSpan={5}>
+                          <div className="grid grid-cols-2 gap-4 bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg shadow-inner">
+                            <div className="space-y-2">
+                              <input
+                                name="name"
+                                value={editFormData.name}
+                                onChange={handleInputChange}
+                                className="input-base p-2 w-full rounded text-sm"
+                                placeholder="Client Name"
+                              />
+                              <input
+                                name="email"
+                                value={editFormData.email}
+                                onChange={handleInputChange}
+                                className="input-base p-2 w-full rounded text-sm"
+                                placeholder="Email Address"
+                              />
+                              <input
+                                name="phone"
+                                value={editFormData.phone}
+                                onChange={handleInputChange}
+                                className="input-base p-2 w-full rounded text-sm"
+                                placeholder="Phone"
+                              />
+                              <textarea
+                                name="address"
+                                value={editFormData.address || ""}
+                                onChange={handleInputChange}
+                                className="input-base p-2 w-full rounded text-sm h-20"
+                                placeholder="Billing Address..."
+                              />
                             </div>
-                          </td>
-                          <td className="hidden"></td>
-                          <td className="hidden"></td>
-                          <td className="hidden"></td>
-                          <td className="hidden"></td>
-                        </>
+                            <div className="space-y-2">
+                              <input
+                                name="service"
+                                value={editFormData.service}
+                                onChange={handleInputChange}
+                                className="input-base p-2 w-full rounded text-sm font-semibold"
+                                placeholder="Service Name"
+                              />
+                              <div className="flex gap-2">
+                                <input
+                                  type="number"
+                                  name="price"
+                                  value={editFormData.price}
+                                  onChange={handleInputChange}
+                                  className="input-base p-2 w-full rounded text-sm"
+                                  placeholder="Price $"
+                                />
+                                <select
+                                  name="status"
+                                  value={editFormData.status}
+                                  onChange={handleInputChange}
+                                  className="input-base p-2 w-full rounded text-sm"
+                                >
+                                  <option>Pending</option>
+                                  <option>In Progress</option>
+                                  <option>Completed</option>
+                                </select>
+                              </div>
+                              <div className="flex gap-2">
+                                <div className="w-full">
+                                  <label className="text-xs text-sub">
+                                    Invoice
+                                  </label>
+                                  <input
+                                    type="date"
+                                    name="invoice_date"
+                                    value={editFormData.invoice_date || ""}
+                                    onChange={handleInputChange}
+                                    className="input-base p-2 w-full rounded text-sm"
+                                  />
+                                </div>
+                                <div className="w-full">
+                                  <label className="text-xs text-sub">
+                                    Due
+                                  </label>
+                                  <input
+                                    type="date"
+                                    name="due_date"
+                                    value={editFormData.due_date || ""}
+                                    onChange={handleInputChange}
+                                    className="input-base p-2 w-full rounded text-sm"
+                                  />
+                                </div>
+                              </div>
+                              <textarea
+                                name="notes"
+                                value={editFormData.notes || ""}
+                                onChange={handleInputChange}
+                                className="input-base p-2 w-full rounded text-sm h-16"
+                                placeholder="Payment Terms / Notes..."
+                              />
+                            </div>
+                            <div className="col-span-2 flex justify-end gap-3 mt-2">
+                              <button
+                                onClick={() => setEditingId(null)}
+                                className="px-4 py-2 text-sub hover:opacity-80 rounded"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => handleSave(client.id)}
+                                className="px-6 py-2 bg-blue-600 text-white rounded shadow-sm hover:bg-blue-700 flex items-center gap-2"
+                              >
+                                <Save size={16} /> Save
+                              </button>
+                            </div>
+                          </div>
+                        </td>
                       ) : (
                         <>
                           <td className="px-6 py-4 font-medium">
                             {client.name}
-                            <div className="text-gray-400 text-xs">
+                            <div className="text-sub text-xs">
                               {client.email}
                             </div>
                           </td>
-                          <td className="px-6 py-4">{client.service}</td>
-                          <td className="px-6 py-4 font-bold text-gray-700">
-                            ${client.price}
+                          <td className="px-6 py-4">
+                            {client.service}
+                            <div className="text-sub text-xs font-bold mt-1">
+                              ${client.price}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="text-xs flex flex-col gap-1">
+                              <span className="flex items-center gap-1 text-sub">
+                                <Calendar size={12} /> Inv:{" "}
+                                {client.invoice_date || "-"}
+                              </span>
+                              {client.due_date && (
+                                <span
+                                  className={`flex items-center gap-1 font-medium ${
+                                    new Date(client.due_date) < new Date() &&
+                                    client.status !== "Completed"
+                                      ? "text-red-500"
+                                      : "text-sub"
+                                  }`}
+                                >
+                                  <Clock size={12} /> Due: {client.due_date}
+                                </span>
+                              )}
+                              {client.notes && (
+                                <span
+                                  className="flex items-center gap-1 text-sub mt-1 max-w-[150px] truncate"
+                                  title={client.notes}
+                                >
+                                  <StickyNote size={12} /> {client.notes}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-6 py-4">
                             <span
-                              className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(
-                                client.status
-                              )}`}
+                              className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                                client.status === "Completed"
+                                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                  : client.status === "In Progress"
+                                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                                  : "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+                              }`}
                             >
                               {client.status}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-right flex justify-end gap-2">
+                            {/* ✅ RESTORED BUTTONS */}
+                            <button
+                              onClick={() => openTaskDrawer(client)}
+                              className="text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 p-2 rounded"
+                              title="Tasks"
+                            >
+                              <ClipboardList size={16} />
+                            </button>
                             <button
                               onClick={() => generateInvoice(client)}
-                              className="text-purple-600 hover:bg-purple-50 p-2 rounded"
+                              className="text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 p-2 rounded"
                               title="Invoice"
                             >
                               <Download size={16} />
@@ -917,7 +1227,7 @@ export default function Dashboard() {
                                 setEditingId(client.id);
                                 setEditFormData(client);
                               }}
-                              className="text-gray-500 hover:bg-gray-100 p-2 rounded"
+                              className="text-sub hover:bg-[var(--bg-main)] p-2 rounded"
                               title="Edit"
                             >
                               <Pencil size={16} />
@@ -929,21 +1239,21 @@ export default function Dashboard() {
                                   "_blank"
                                 )
                               }
-                              className="text-green-600 hover:bg-green-50 p-2 rounded"
+                              className="text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 p-2 rounded"
                               title="WhatsApp"
                             >
                               <MessageCircle size={16} />
                             </button>
                             <button
                               onClick={() => openEmailModal(client)}
-                              className="text-blue-500 hover:bg-blue-50 p-2 rounded"
+                              className="text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 p-2 rounded"
                               title="Email"
                             >
                               <Mail size={16} />
                             </button>
                             <button
                               onClick={() => deleteClient(client.id)}
-                              className="text-red-500 hover:bg-red-50 p-2 rounded"
+                              className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 p-2 rounded"
                               title="Delete"
                             >
                               <Trash2 size={16} />
@@ -959,11 +1269,11 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* HISTORY TAB */}
+        {/* ✅ RESTORED HISTORY TAB */}
         {activeTab === "history" && (
-          <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+          <div className="card-base rounded-xl shadow-sm overflow-hidden">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 text-gray-500">
+              <thead className="bg-[var(--bg-main)] text-sub">
                 <tr>
                   <th className="px-6 py-4">Date</th>
                   <th className="px-6 py-4">To</th>
@@ -971,7 +1281,7 @@ export default function Dashboard() {
                   <th className="px-6 py-4 w-10"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-[var(--border)]">
                 {emailLogs.map((log) => (
                   <React.Fragment key={log.id}>
                     <tr
@@ -980,14 +1290,14 @@ export default function Dashboard() {
                           expandedLogId === log.id ? null : log.id
                         )
                       }
-                      className="hover:bg-gray-50 cursor-pointer"
+                      className="hover:bg-[var(--bg-main)] transition-colors cursor-pointer"
                     >
                       <td className="px-6 py-4">
                         {new Date(log.created_at).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4">{log.client_name}</td>
                       <td className="px-6 py-4">{log.subject}</td>
-                      <td className="px-6 py-4 text-gray-400">
+                      <td className="px-6 py-4 text-sub">
                         {expandedLogId === log.id ? (
                           <ChevronUp size={16} />
                         ) : (
@@ -996,10 +1306,10 @@ export default function Dashboard() {
                       </td>
                     </tr>
                     {expandedLogId === log.id && (
-                      <tr className="bg-gray-50">
+                      <tr className="bg-[var(--bg-main)]">
                         <td
                           colSpan={4}
-                          className="px-6 py-4 text-gray-600 font-mono text-xs p-4 bg-gray-50 whitespace-pre-wrap"
+                          className="px-6 py-4 text-sub font-mono text-xs p-4 whitespace-pre-wrap"
                         >
                           {log.message || "No content."}
                         </td>
@@ -1012,15 +1322,33 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* SETTINGS TAB */}
+        {/* ✅ RESTORED SETTINGS TAB */}
         {activeTab === "settings" && (
-          <div className="max-w-2xl bg-white p-8 rounded-xl border shadow-sm">
+          <div className="max-w-2xl card-base p-8 rounded-xl shadow-sm">
             <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
               <Settings size={20} /> Admin Settings
             </h3>
+            {/* Image Preview Block */}
+            <div className="mb-6 flex items-center gap-4">
+              {settings.avatar_url ? (
+                <img
+                  src={settings.avatar_url}
+                  alt="Profile"
+                  className="w-20 h-20 rounded-full border border-[var(--border)] object-cover"
+                />
+              ) : (
+                <div className="w-20 h-20 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                  <User size={32} />
+                </div>
+              )}
+              <div>
+                <p className="font-medium">Profile Photo</p>
+                <p className="text-xs text-sub">Enter a URL below to update.</p>
+              </div>
+            </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-sub mb-1">
                   Full Name
                 </label>
                 <input
@@ -1029,12 +1357,11 @@ export default function Dashboard() {
                   onChange={(e) =>
                     setSettings({ ...settings, full_name: e.target.value })
                   }
-                  className="w-full border p-2 rounded-lg"
-                  placeholder="e.g. John Doe"
+                  className="w-full input-base p-2 rounded-lg"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-sub mb-1">
                   Company / CRM Name
                 </label>
                 <input
@@ -1043,12 +1370,11 @@ export default function Dashboard() {
                   onChange={(e) =>
                     setSettings({ ...settings, company_name: e.target.value })
                   }
-                  className="w-full border p-2 rounded-lg"
-                  placeholder="e.g. Prime Service"
+                  className="w-full input-base p-2 rounded-lg"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-sub mb-1">
                   Profile Picture URL
                 </label>
                 <input
@@ -1057,20 +1383,14 @@ export default function Dashboard() {
                   onChange={(e) =>
                     setSettings({ ...settings, avatar_url: e.target.value })
                   }
-                  className="w-full border p-2 rounded-lg"
-                  placeholder="https://..."
+                  className="w-full input-base p-2 rounded-lg"
                 />
               </div>
               <button
                 onClick={saveSettings}
                 disabled={isSaving}
-                className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition flex items-center gap-2"
+                className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
               >
-                {isSaving ? (
-                  <Loader2 className="animate-spin" size={18} />
-                ) : (
-                  <Save size={18} />
-                )}{" "}
                 Save Changes
               </button>
             </div>
