@@ -11,20 +11,33 @@ import {
   Pencil,
   Save,
   X,
-  Phone,
   Mail,
-  Send,
   Loader2,
   History,
   CheckCircle,
   RefreshCw,
   ChevronDown,
   ChevronUp,
+  LogIn,
+  DollarSign,
+  TrendingUp,
+  Settings,
+  User,
 } from "lucide-react";
 import emailjs from "@emailjs/browser";
 import { supabase } from "./supabaseClient";
+import AuthScreen from "./components/AuthScreen";
+// CHARTS
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
-// 🔴 EMAIL KEYS (Keep these)
 const SERVICE_ID = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID!;
 const TEMPLATE_ID = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID!;
 const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY!;
@@ -36,31 +49,51 @@ interface Client {
   service: string;
   status: string;
   phone: string;
+  price: number;
 }
 
-// ✅ UPDATED: Added 'message'
 interface EmailLog {
   id: number;
   client_name: string;
   email: string;
   subject: string;
-  message: string; // New field
+  message: string;
   created_at: string;
   status: string;
 }
 
-export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState("dashboard");
+// ✅ NEW INTERFACE FOR SETTINGS
+interface AdminSettings {
+  id?: number;
+  full_name: string;
+  company_name: string;
+  avatar_url: string;
+}
 
+export default function Dashboard() {
+  // --- AUTH ---
+  const [session, setSession] = useState<any>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+
+  // --- DATA ---
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [clients, setClients] = useState<Client[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
+  // ✅ NEW SETTINGS STATE
+  const [settings, setSettings] = useState<AdminSettings>({
+    full_name: "Admin",
+    company_name: "ServiceCRM",
+    avatar_url: "",
+  });
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
+  // --- EDITING / FORMS ---
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editFormData, setEditFormData] = useState<Partial<Client>>({});
 
+  // --- EMAIL MODAL ---
   const [isEmailOpen, setIsEmailOpen] = useState(false);
   const [emailData, setEmailData] = useState({
     to: "",
@@ -69,14 +102,31 @@ export default function Dashboard() {
     message: "",
   });
   const [isSending, setIsSending] = useState(false);
-
-  // ✅ NEW: Track which history row is expanded
   const [expandedLogId, setExpandedLogId] = useState<number | null>(null);
 
-  // --- 1. LOAD DATA ---
+  // --- INIT ---
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setSessionLoading(false);
+      if (session) fetchAllData();
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) fetchAllData();
+      else {
+        setClients([]);
+        setEmailLogs([]);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   const fetchAllData = async () => {
     setIsLoading(true);
-
     const clientsData = await supabase
       .from("clients")
       .select("*")
@@ -85,45 +135,69 @@ export default function Dashboard() {
       .from("email_logs")
       .select("*")
       .order("created_at", { ascending: false });
+    // ✅ FETCH SETTINGS
+    const settingsData = await supabase.from("settings").select("*").single();
 
-    if (clientsData.error || logsData.error) {
-      console.error("Error fetching data");
-    } else {
-      setClients(clientsData.data || []);
-      setEmailLogs(logsData.data || []);
-    }
+    if (clientsData.data) setClients(clientsData.data);
+    if (logsData.data) setEmailLogs(logsData.data);
+
+    // If settings exist, load them. If not, the default state is used.
+    if (settingsData.data) setSettings(settingsData.data);
+
     setIsLoading(false);
   };
 
-  useEffect(() => {
-    fetchAllData();
-  }, []);
+  const handleLogout = async () => await supabase.auth.signOut();
 
-  // --- 2. ADD CLIENT ---
+  // --- SETTINGS ACTIONS ---
+  const saveSettings = async () => {
+    setIsSaving(true);
+    // Check if we already have a row (id exists)
+    if (settings.id) {
+      await supabase
+        .from("settings")
+        .update({
+          full_name: settings.full_name,
+          company_name: settings.company_name,
+          avatar_url: settings.avatar_url,
+        })
+        .eq("id", settings.id);
+    } else {
+      // Create first row
+      const { data } = await supabase
+        .from("settings")
+        .insert([settings])
+        .select();
+      if (data) setSettings(data[0]);
+    }
+    alert("Settings Saved!");
+    setIsSaving(false);
+  };
+
+  // --- CLIENT ACTIONS ---
   const addFakeClient = async () => {
     setIsSaving(true);
     const newClientData = {
       name: "New Customer",
       email: "",
-      service: "New Service",
+      service: "Service Name",
       status: "Pending",
       phone: "8801",
+      price: 0,
     };
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("clients")
       .insert([newClientData])
       .select();
     if (data) {
-      const createdClient = data[0];
-      setClients([createdClient, ...clients]);
+      setClients([data[0], ...clients]);
       setActiveTab("clients");
-      setEditingId(createdClient.id);
-      setEditFormData(createdClient);
+      setEditingId(data[0].id);
+      setEditFormData(data[0]);
     }
     setIsSaving(false);
   };
 
-  // --- 3. SAVE EDITS ---
   const handleSave = async (id: number) => {
     setIsSaving(true);
     const { error } = await supabase
@@ -131,26 +205,20 @@ export default function Dashboard() {
       .update(editFormData)
       .eq("id", id);
     if (!error) {
-      const updatedClients = clients.map((client) =>
-        client.id === id ? ({ ...client, ...editFormData } as Client) : client
+      setClients(
+        clients.map((c) =>
+          c.id === id ? ({ ...c, ...editFormData } as Client) : c
+        )
       );
-      setClients(updatedClients);
       setEditingId(null);
     }
     setIsSaving(false);
   };
 
-  // --- 4. DELETE CLIENT ---
   const deleteClient = async (id: number) => {
-    if (!confirm("Are you sure?")) return;
+    if (!confirm("Delete this client?")) return;
     const { error } = await supabase.from("clients").delete().eq("id", id);
     if (!error) setClients(clients.filter((c) => c.id !== id));
-  };
-
-  // --- HELPERS ---
-  const handleEditClick = (client: Client) => {
-    setEditingId(client.id);
-    setEditFormData(client);
   };
 
   const handleInputChange = (
@@ -159,137 +227,120 @@ export default function Dashboard() {
     setEditFormData({ ...editFormData, [e.target.name]: e.target.value });
   };
 
+  // --- EMAIL ACTIONS ---
   const openEmailModal = (client: Client) => {
     setEmailData({
       to: client.email,
       name: client.name,
-      subject: "Update regarding your service",
-      message: `Hi ${client.name},\n\nWe wanted to update you about your service request for ${client.service}.\n\nBest,\nServiceCRM Team`,
+      subject: "Service Update",
+      message: `Hi ${client.name},\n\nUpdate regarding your ${client.service}.\n\nBest,\n${settings.company_name}`,
     });
     setIsEmailOpen(true);
   };
 
-  const toggleLogExpansion = (id: number) => {
-    if (expandedLogId === id) setExpandedLogId(null); // Close if already open
-    else setExpandedLogId(id); // Open this one
-  };
-
-  // --- 5. SEND EMAIL & SAVE MESSAGE TO DB ---
   const handleSendEmail = (e: React.FormEvent) => {
     e.preventDefault();
     setIsSending(true);
-
-    const templateParams = {
-      to_email: emailData.to,
-      to_name: emailData.name,
-      subject: emailData.subject,
-      message: emailData.message,
-    };
-
-    emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams, PUBLIC_KEY).then(
-      async (response) => {
-        alert(`Email Sent Successfully to ${emailData.to}`);
-
-        // ✅ NOW SAVING 'message' TO DB
-        const newLogData = {
-          client_name: emailData.name,
-          email: emailData.to,
+    emailjs
+      .send(
+        SERVICE_ID,
+        TEMPLATE_ID,
+        {
+          to_email: emailData.to,
+          to_name: emailData.name,
           subject: emailData.subject,
-          message: emailData.message, // Saving body
-          status: "Sent",
-        };
-
-        const { data } = await supabase
-          .from("email_logs")
-          .insert([newLogData])
-          .select();
-        if (data) setEmailLogs([data[0], ...emailLogs]);
-
-        setIsEmailOpen(false);
-        setIsSending(false);
-      },
-      (err) => {
-        alert("Failed to send email.");
-        setIsSending(false);
-      }
-    );
+          message: emailData.message,
+        },
+        PUBLIC_KEY
+      )
+      .then(
+        async () => {
+          alert(`Sent to ${emailData.to}`);
+          const { data } = await supabase
+            .from("email_logs")
+            .insert([
+              {
+                client_name: emailData.name,
+                email: emailData.to,
+                subject: emailData.subject,
+                message: emailData.message,
+                status: "Sent",
+              },
+            ])
+            .select();
+          if (data) setEmailLogs([data[0], ...emailLogs]);
+          setIsEmailOpen(false);
+          setIsSending(false);
+        },
+        () => {
+          alert("Failed.");
+          setIsSending(false);
+        }
+      );
   };
+
+  // --- ANALYTICS ---
+  const totalRevenue = clients.reduce(
+    (sum, client) => sum + (Number(client.price) || 0),
+    0
+  );
+  const activeJobs = clients.filter((c) => c.status === "In Progress").length;
+  const completedJobs = clients.filter((c) => c.status === "Completed").length;
+
+  const chartData = clients.reduce((acc: any[], client) => {
+    const existing = acc.find((item) => item.name === client.service);
+    if (existing) {
+      existing.revenue += Number(client.price) || 0;
+    } else {
+      acc.push({
+        name: client.service || "Other",
+        revenue: Number(client.price) || 0,
+      });
+    }
+    return acc;
+  }, []);
+
+  if (sessionLoading)
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <Loader2 className="animate-spin text-blue-600" />
+      </div>
+    );
+  if (!session) return <AuthScreen />;
 
   return (
     <div className="flex h-screen bg-gray-50 text-gray-800 font-sans relative">
       {/* EMAIL MODAL */}
       {isEmailOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="bg-blue-600 p-4 flex justify-between items-center text-white">
-              <h3 className="font-semibold flex items-center gap-2">
-                <Mail size={20} /> Compose Email
-              </h3>
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4">
+            <h3 className="font-semibold text-lg">Send Email</h3>
+            <textarea
+              className="w-full border p-2 rounded"
+              rows={5}
+              value={emailData.message}
+              onChange={(e) =>
+                setEmailData({ ...emailData, message: e.target.value })
+              }
+            />
+            <div className="flex justify-end gap-2">
               <button
                 onClick={() => setIsEmailOpen(false)}
-                className="hover:bg-blue-700 p-1 rounded"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  To
-                </label>
-                <input
-                  disabled
-                  value={`${emailData.name} <${emailData.to}>`}
-                  className="w-full bg-gray-100 border border-gray-300 rounded-lg p-2 text-sm text-gray-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Subject
-                </label>
-                <input
-                  value={emailData.subject}
-                  onChange={(e) =>
-                    setEmailData({ ...emailData, subject: e.target.value })
-                  }
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Message
-                </label>
-                <textarea
-                  rows={6}
-                  value={emailData.message}
-                  onChange={(e) =>
-                    setEmailData({ ...emailData, message: e.target.value })
-                  }
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-                />
-              </div>
-            </div>
-            <div className="p-4 bg-gray-50 border-t flex justify-end gap-2">
-              <button
-                onClick={() => setIsEmailOpen(false)}
-                className="px-4 py-2 text-gray-600 font-medium hover:bg-gray-200 rounded-lg transition-colors"
+                className="px-4 py-2 bg-gray-200 rounded"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSendEmail}
                 disabled={isSending}
-                className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                className="px-4 py-2 bg-blue-600 text-white rounded flex items-center gap-2"
               >
                 {isSending ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" /> Sending...
-                  </>
+                  <Loader2 className="animate-spin" size={16} />
                 ) : (
-                  <>
-                    <Send size={16} /> Send
-                  </>
-                )}
+                  <Send size={16} />
+                )}{" "}
+                Send
               </button>
             </div>
           </div>
@@ -298,13 +349,16 @@ export default function Dashboard() {
 
       {/* SIDEBAR */}
       <aside className="w-64 bg-white border-r border-gray-200 hidden md:flex flex-col">
+        {/* ✅ DYNAMIC COMPANY NAME */}
         <div className="p-6">
-          <h1 className="text-2xl font-bold text-blue-600">ServiceCRM</h1>
+          <h1 className="text-2xl font-bold text-blue-600">
+            {settings.company_name}
+          </h1>
         </div>
-        <nav className="px-4 space-y-2">
+        <nav className="px-4 space-y-2 flex-1">
           <button
             onClick={() => setActiveTab("dashboard")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium cursor-pointer ${
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
               activeTab === "dashboard"
                 ? "bg-blue-50 text-blue-700"
                 : "text-gray-600 hover:bg-gray-100"
@@ -314,7 +368,7 @@ export default function Dashboard() {
           </button>
           <button
             onClick={() => setActiveTab("clients")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium cursor-pointer ${
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
               activeTab === "clients"
                 ? "bg-blue-50 text-blue-700"
                 : "text-gray-600 hover:bg-gray-100"
@@ -324,356 +378,432 @@ export default function Dashboard() {
           </button>
           <button
             onClick={() => setActiveTab("history")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium cursor-pointer ${
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
               activeTab === "history"
                 ? "bg-blue-50 text-blue-700"
                 : "text-gray-600 hover:bg-gray-100"
             }`}
           >
-            <History size={20} /> Email History
+            <History size={20} /> History
+          </button>
+          {/* ✅ SETTINGS TAB */}
+          <button
+            onClick={() => setActiveTab("settings")}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${
+              activeTab === "settings"
+                ? "bg-blue-50 text-blue-700"
+                : "text-gray-600 hover:bg-gray-100"
+            }`}
+          >
+            <Settings size={20} /> Settings
           </button>
         </nav>
+        <div className="p-4 border-t">
+          <button
+            onClick={handleLogout}
+            className="flex gap-2 text-gray-500 hover:text-red-600"
+          >
+            <LogIn className="rotate-180" /> Logout
+          </button>
+        </div>
       </aside>
 
       {/* MAIN CONTENT */}
-      <main className="flex-1 overflow-y-auto">
-        <header className="bg-white border-b border-gray-200 p-6 flex justify-between items-center sticky top-0 z-10">
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-semibold capitalize">
+      <main className="flex-1 overflow-y-auto p-6">
+        {/* TOP HEADER */}
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h2 className="text-2xl font-bold capitalize">
               {activeTab} Overview
             </h2>
-            {isLoading && (
-              <Loader2 size={16} className="animate-spin text-gray-400" />
-            )}
+            {/* ✅ DYNAMIC WELCOME MESSAGE */}
+            <p className="text-gray-500 text-sm">
+              Welcome back, {settings.full_name}
+            </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-4">
+            {/* ✅ AVATAR DISPLAY */}
+            {settings.avatar_url ? (
+              <img
+                src={settings.avatar_url}
+                alt="Profile"
+                className="w-10 h-10 rounded-full border border-gray-200 object-cover"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                <User size={20} />
+              </div>
+            )}
             <button
               onClick={fetchAllData}
-              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-              title="Refresh Data"
+              className="p-2 bg-white border rounded-lg hover:bg-gray-50"
             >
-              <RefreshCw size={18} />
+              <RefreshCw size={20} className="text-gray-600" />
             </button>
             {activeTab === "clients" && (
               <button
                 onClick={addFakeClient}
-                disabled={isSaving}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 cursor-pointer transition-transform active:scale-95 disabled:opacity-50"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg flex gap-2 items-center"
               >
-                {isSaving ? (
-                  "Saving..."
-                ) : (
-                  <>
-                    <Plus size={16} /> New Client
-                  </>
-                )}
+                <Plus size={18} /> Add Client
               </button>
             )}
           </div>
-        </header>
+        </div>
 
-        <div className="p-6 space-y-6">
-          {activeTab === "dashboard" && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex justify-between">
+        {/* DASHBOARD */}
+        {activeTab === "dashboard" && (
+          <div className="space-y-6">
+            {/* TOP CARDS */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="bg-white p-6 rounded-xl border shadow-sm">
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">Total Clients</p>
-                  <h3 className="text-2xl font-bold">
-                    {isLoading ? "..." : clients.length}
+                  <p className="text-gray-500 text-sm">Total Revenue</p>
+                  <h3 className="text-2xl font-bold mt-1">
+                    ${totalRevenue.toLocaleString()}
                   </h3>
                 </div>
-                <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
-                  <Users size={20} />
-                </div>
               </div>
-              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex justify-between">
+              <div className="bg-white p-6 rounded-xl border shadow-sm">
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">Emails Sent</p>
-                  <h3 className="text-2xl font-bold">{emailLogs.length}</h3>
-                </div>
-                <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
-                  <Mail size={20} />
+                  <p className="text-gray-500 text-sm">Active Jobs</p>
+                  <h3 className="text-2xl font-bold mt-1">{activeJobs}</h3>
                 </div>
               </div>
-            </div>
-          )}
-
-          {activeTab === "clients" && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-50 text-gray-500">
-                    <tr>
-                      <th className="px-6 py-4 font-medium">Client Info</th>
-                      <th className="px-6 py-4 font-medium">Service</th>
-                      <th className="px-6 py-4 font-medium">Status</th>
-                      <th className="px-6 py-4 font-medium text-right">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {clients.length === 0 && !isLoading ? (
-                      <tr>
-                        <td
-                          colSpan={4}
-                          className="p-8 text-center text-gray-400"
-                        >
-                          No clients found in Database.
-                        </td>
-                      </tr>
-                    ) : (
-                      clients.map((client) => (
-                        <tr
-                          key={client.id}
-                          className="hover:bg-gray-50 transition-colors"
-                        >
-                          {editingId === client.id ? (
-                            <>
-                              <td className="px-6 py-4 space-y-2">
-                                <input
-                                  type="text"
-                                  name="name"
-                                  value={editFormData.name || ""}
-                                  onChange={handleInputChange}
-                                  className="border p-2 rounded w-full"
-                                  placeholder="Name"
-                                />
-                                <input
-                                  type="text"
-                                  name="email"
-                                  value={editFormData.email || ""}
-                                  onChange={handleInputChange}
-                                  className="border p-2 rounded w-full"
-                                  placeholder="Email"
-                                />
-                                <input
-                                  type="text"
-                                  name="phone"
-                                  value={editFormData.phone || ""}
-                                  onChange={handleInputChange}
-                                  className="border p-2 rounded w-full"
-                                  placeholder="Phone"
-                                />
-                              </td>
-                              <td className="px-6 py-4">
-                                <input
-                                  type="text"
-                                  name="service"
-                                  value={editFormData.service || ""}
-                                  onChange={handleInputChange}
-                                  className="border p-2 rounded w-full"
-                                />
-                              </td>
-                              <td className="px-6 py-4">
-                                <select
-                                  name="status"
-                                  value={editFormData.status || "Pending"}
-                                  onChange={handleInputChange}
-                                  className="border p-2 rounded w-full"
-                                >
-                                  <option value="Pending">Pending</option>
-                                  <option value="In Progress">
-                                    In Progress
-                                  </option>
-                                  <option value="Completed">Completed</option>
-                                </select>
-                              </td>
-                              <td className="px-6 py-4 text-right">
-                                <button
-                                  onClick={() => handleSave(client.id)}
-                                  disabled={isSaving}
-                                  className="mr-2 p-2 bg-green-100 text-green-600 rounded hover:bg-green-200 cursor-pointer"
-                                >
-                                  <Save size={16} />
-                                </button>
-                                <button
-                                  onClick={() => setEditingId(null)}
-                                  className="p-2 bg-red-100 text-red-600 rounded hover:bg-red-200 cursor-pointer"
-                                >
-                                  <X size={16} />
-                                </button>
-                              </td>
-                            </>
-                          ) : (
-                            <>
-                              <td className="px-6 py-4">
-                                <div className="font-medium text-gray-900">
-                                  {client.name}
-                                </div>
-                                <div className="text-gray-500 text-xs">
-                                  {client.email}
-                                </div>
-                                <div className="text-gray-500 text-xs">
-                                  {client.phone}
-                                </div>
-                              </td>
-                              <td className="px-6 py-4">{client.service}</td>
-                              <td className="px-6 py-4">
-                                <span
-                                  className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                    client.status === "Completed"
-                                      ? "bg-green-100 text-green-800"
-                                      : client.status === "Pending"
-                                      ? "bg-orange-100 text-orange-800"
-                                      : "bg-blue-100 text-blue-800"
-                                  }`}
-                                >
-                                  {client.status}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 text-right">
-                                <div className="flex justify-end gap-2">
-                                  <button
-                                    onClick={() => handleEditClick(client)}
-                                    className="p-2 hover:bg-gray-100 rounded text-gray-500 cursor-pointer"
-                                    title="Edit"
-                                  >
-                                    <Pencil size={16} />
-                                  </button>
-                                  <button
-                                    onClick={() =>
-                                      window.open(
-                                        `https://wa.me/${client.phone}`,
-                                        "_blank"
-                                      )
-                                    }
-                                    className="p-2 hover:bg-green-50 rounded text-green-600 cursor-pointer"
-                                    title="WhatsApp"
-                                  >
-                                    <MessageCircle size={16} />
-                                  </button>
-                                  <button
-                                    onClick={() => openEmailModal(client)}
-                                    className="p-2 hover:bg-blue-50 rounded text-blue-600 cursor-pointer"
-                                    title="Compose Email"
-                                  >
-                                    <Mail size={16} />
-                                  </button>
-                                  <button
-                                    onClick={() => deleteClient(client.id)}
-                                    className="p-2 hover:bg-red-50 rounded text-red-500 cursor-pointer"
-                                    title="Delete"
-                                  >
-                                    <Trash2 size={16} />
-                                  </button>
-                                </div>
-                              </td>
-                            </>
-                          )}
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+              <div className="bg-white p-6 rounded-xl border shadow-sm">
+                <div>
+                  <p className="text-gray-500 text-sm">Completed</p>
+                  <h3 className="text-2xl font-bold mt-1">{completedJobs}</h3>
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-xl border shadow-sm">
+                <div>
+                  <p className="text-gray-500 text-sm">Avg. Deal</p>
+                  <h3 className="text-2xl font-bold mt-1">
+                    $
+                    {clients.length > 0
+                      ? Math.round(totalRevenue / clients.length)
+                      : 0}
+                  </h3>
+                </div>
               </div>
             </div>
-          )}
 
-          {/* HISTORY TAB */}
-          {activeTab === "history" && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-50 text-gray-500">
-                    <tr>
-                      <th className="px-6 py-4 font-medium">Date</th>
-                      <th className="px-6 py-4 font-medium">To</th>
-                      <th className="px-6 py-4 font-medium">Subject</th>
-                      <th className="px-6 py-4 font-medium">Status</th>
-                      <th className="px-6 py-4 font-medium w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {emailLogs.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={5}
-                          className="px-6 py-8 text-center text-gray-500"
-                        >
-                          No emails sent yet.
-                        </td>
-                      </tr>
-                    ) : (
-                      emailLogs.map((log) => {
-                        const dateObj = new Date(log.created_at);
-                        const dateStr = dateObj.toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        });
-                        const timeStr = dateObj.toLocaleTimeString("en-US", {
-                          hour: "numeric",
-                          minute: "2-digit",
-                          hour12: true,
-                        });
+            {/* CHARTS AREA */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-96">
+              {/* MAIN REVENUE CHART */}
+              <div className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 flex flex-col">
+                <h3 className="font-semibold mb-6">Revenue by Service</h3>
+                <div className="flex-1 min-h-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis
+                        dataKey="name"
+                        fontSize={12}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        fontSize={12}
+                        axisLine={false}
+                        tickLine={false}
+                        tickFormatter={(v) => `$${v}`}
+                      />
+                      <Tooltip />
+                      <Bar
+                        dataKey="revenue"
+                        fill="#4F46E5"
+                        radius={[4, 4, 0, 0]}
+                        barSize={40}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
 
-                        return (
-                          <React.Fragment key={log.id}>
-                            {/* MAIN ROW (Clickable) */}
-                            <tr
-                              onClick={() => toggleLogExpansion(log.id)}
-                              className={`hover:bg-gray-50 cursor-pointer transition-colors ${
-                                expandedLogId === log.id ? "bg-blue-50" : ""
-                              }`}
-                            >
-                              <td className="px-6 py-4">
-                                <div className="font-medium text-gray-700">
-                                  {dateStr}
-                                </div>
-                                <div className="text-gray-400 text-xs font-mono">
-                                  {timeStr}
-                                </div>
-                              </td>
-                              <td className="px-6 py-4 font-medium">
-                                {log.client_name}
-                                <div className="text-gray-400 text-xs">
-                                  {log.email}
-                                </div>
-                              </td>
-                              <td className="px-6 py-4 text-gray-600">
-                                {log.subject}
-                              </td>
-                              <td className="px-6 py-4">
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                  <CheckCircle size={12} /> {log.status}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 text-gray-400">
-                                {expandedLogId === log.id ? (
-                                  <ChevronUp size={16} />
-                                ) : (
-                                  <ChevronDown size={16} />
-                                )}
-                              </td>
-                            </tr>
-
-                            {/* EXPANDED ROW (Message Body) */}
-                            {expandedLogId === log.id && (
-                              <tr className="bg-gray-50 animate-in slide-in-from-top-2 duration-200">
-                                <td colSpan={5} className="px-6 py-4">
-                                  <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-                                    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-                                      Message Content
-                                    </h4>
-                                    <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                                      {log.message ||
-                                        "No message content saved."}
-                                    </p>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </React.Fragment>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+              {/* ✅ FIXED: JOB STATUS PANEL RESTORED */}
+              <div className="bg-white p-6 rounded-xl border shadow-sm">
+                <h3 className="font-semibold mb-4">Job Status</h3>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-3 h-3 rounded-full bg-orange-500"></div>
+                      <span className="text-sm font-medium">In Progress</span>
+                    </div>
+                    <span className="font-bold">{activeJobs}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                      <span className="text-sm font-medium">Completed</span>
+                    </div>
+                    <span className="font-bold">{completedJobs}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-3 h-3 rounded-full bg-gray-400"></div>
+                      <span className="text-sm font-medium">Pending</span>
+                    </div>
+                    <span className="font-bold">
+                      {clients.length - activeJobs - completedJobs}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        {/* CLIENTS */}
+        {activeTab === "clients" && (
+          <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-gray-50 text-gray-500">
+                <tr>
+                  <th className="px-6 py-4">Client</th>
+                  <th className="px-6 py-4">Service</th>
+                  <th className="px-6 py-4">Price ($)</th>
+                  <th className="px-6 py-4">Status</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {clients.map((client) => (
+                  <tr key={client.id} className="hover:bg-gray-50">
+                    {editingId === client.id ? (
+                      <>
+                        <td className="px-6 py-4 space-y-2">
+                          <input
+                            name="name"
+                            value={editFormData.name}
+                            onChange={handleInputChange}
+                            className="border p-1 w-full rounded"
+                          />
+                          <input
+                            name="email"
+                            value={editFormData.email}
+                            onChange={handleInputChange}
+                            className="border p-1 w-full rounded"
+                          />
+                        </td>
+                        <td className="px-6 py-4">
+                          <input
+                            name="service"
+                            value={editFormData.service}
+                            onChange={handleInputChange}
+                            className="border p-1 w-full rounded"
+                          />
+                        </td>
+                        <td className="px-6 py-4">
+                          <input
+                            type="number"
+                            name="price"
+                            value={editFormData.price}
+                            onChange={handleInputChange}
+                            className="border p-1 w-20 rounded"
+                          />
+                        </td>
+                        <td className="px-6 py-4">
+                          <select
+                            name="status"
+                            value={editFormData.status}
+                            onChange={handleInputChange}
+                            className="border p-1 rounded"
+                          >
+                            <option>Pending</option>
+                            <option>In Progress</option>
+                            <option>Completed</option>
+                          </select>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button
+                            onClick={() => handleSave(client.id)}
+                            className="text-green-600 mr-2"
+                          >
+                            <Save size={18} />
+                          </button>
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="text-red-500"
+                          >
+                            <X size={18} />
+                          </button>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="px-6 py-4 font-medium">
+                          {client.name}
+                          <div className="text-gray-400 text-xs">
+                            {client.email}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">{client.service}</td>
+                        <td className="px-6 py-4 font-bold text-gray-700">
+                          ${client.price}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs ${
+                              client.status === "Completed"
+                                ? "bg-green-100 text-green-700"
+                                : "bg-orange-100 text-orange-700"
+                            }`}
+                          >
+                            {client.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right flex justify-end gap-2">
+                          <button
+                            onClick={() => {
+                              setEditingId(client.id);
+                              setEditFormData(client);
+                            }}
+                            className="text-gray-500 hover:bg-gray-100 p-2 rounded"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                          <button
+                            onClick={() => openEmailModal(client)}
+                            className="text-blue-500 hover:bg-blue-50 p-2 rounded"
+                          >
+                            <Mail size={16} />
+                          </button>
+                          <button
+                            onClick={() => deleteClient(client.id)}
+                            className="text-red-500 hover:bg-red-50 p-2 rounded"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* HISTORY */}
+        {activeTab === "history" && (
+          <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-gray-50 text-gray-500">
+                <tr>
+                  <th className="px-6 py-4">Date</th>
+                  <th className="px-6 py-4">To</th>
+                  <th className="px-6 py-4">Subject</th>
+                  <th className="px-6 py-4 w-10"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {emailLogs.map((log) => (
+                  <React.Fragment key={log.id}>
+                    <tr
+                      onClick={() =>
+                        setExpandedLogId(
+                          expandedLogId === log.id ? null : log.id
+                        )
+                      }
+                      className="hover:bg-gray-50 cursor-pointer"
+                    >
+                      <td className="px-6 py-4">
+                        {new Date(log.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4">{log.client_name}</td>
+                      <td className="px-6 py-4">{log.subject}</td>
+                      <td className="px-6 py-4 text-gray-400">
+                        {expandedLogId === log.id ? (
+                          <ChevronUp size={16} />
+                        ) : (
+                          <ChevronDown size={16} />
+                        )}
+                      </td>
+                    </tr>
+                    {expandedLogId === log.id && (
+                      <tr className="bg-gray-50">
+                        <td colSpan={4} className="px-6 py-4 text-gray-600">
+                          {log.message || "No content."}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* ✅ SETTINGS TAB UI */}
+        {activeTab === "settings" && (
+          <div className="max-w-2xl bg-white p-8 rounded-xl border shadow-sm">
+            <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
+              <Settings size={20} /> Admin Settings
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  value={settings.full_name}
+                  onChange={(e) =>
+                    setSettings({ ...settings, full_name: e.target.value })
+                  }
+                  className="w-full border p-2 rounded-lg"
+                  placeholder="e.g. John Doe"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Company / CRM Name
+                </label>
+                <input
+                  type="text"
+                  value={settings.company_name}
+                  onChange={(e) =>
+                    setSettings({ ...settings, company_name: e.target.value })
+                  }
+                  className="w-full border p-2 rounded-lg"
+                  placeholder="e.g. Prime Service"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Profile Picture URL
+                </label>
+                <input
+                  type="text"
+                  value={settings.avatar_url}
+                  onChange={(e) =>
+                    setSettings({ ...settings, avatar_url: e.target.value })
+                  }
+                  className="w-full border p-2 rounded-lg"
+                  placeholder="https://..."
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Paste a direct link to an image (e.g. from Imgur or LinkedIn)
+                </p>
+              </div>
+
+              <button
+                onClick={saveSettings}
+                disabled={isSaving}
+                className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition flex items-center gap-2"
+              >
+                {isSaving ? (
+                  <Loader2 className="animate-spin" size={18} />
+                ) : (
+                  <Save size={18} />
+                )}{" "}
+                Save Changes
+              </button>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
