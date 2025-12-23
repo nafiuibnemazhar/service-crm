@@ -43,6 +43,8 @@ import {
 import emailjs from "@emailjs/browser";
 import { supabase } from "./supabaseClient";
 import AuthScreen from "./components/AuthScreen";
+import Sidebar from "./components/Sidebar"; // ✅ IMPORTED SIDEBAR
+import LeadsView from "./components/LeadsView"; // ✅ IMPORTED LEADS
 import {
   BarChart,
   Bar,
@@ -60,7 +62,7 @@ const SERVICE_ID = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID!;
 const TEMPLATE_ID = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID!;
 const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY!;
 
-// --- INTERFACES ---
+// --- INTERFACES (Keep these or move to a separate types.ts file later) ---
 interface Client {
   id: number;
   name: string;
@@ -73,6 +75,9 @@ interface Client {
   invoice_date: string;
   due_date: string;
   notes: string;
+  type: string; // ✅ NEW
+  lead_score: number; // ✅ NEW
+  pipeline_stage: string; // ✅ NEW
 }
 
 interface Task {
@@ -103,7 +108,6 @@ interface AdminSettings {
 }
 
 export default function Dashboard() {
-  // --- STATE ---
   const [session, setSession] = useState<any>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -112,7 +116,6 @@ export default function Dashboard() {
   // Data State
   const [clients, setClients] = useState<Client[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
-  // ✅ UPDATED DEFAULT NAME TO NAFTA24
   const [settings, setSettings] = useState<AdminSettings>({
     full_name: "Admin",
     company_name: "Nafta24",
@@ -126,12 +129,10 @@ export default function Dashboard() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editFormData, setEditFormData] = useState<Partial<Client>>({});
-
-  // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
 
-  // Email State
+  // Email & Task State
   const [isEmailOpen, setIsEmailOpen] = useState(false);
   const [emailData, setEmailData] = useState({
     to: "",
@@ -141,8 +142,6 @@ export default function Dashboard() {
   });
   const [isSending, setIsSending] = useState(false);
   const [expandedLogId, setExpandedLogId] = useState<number | null>(null);
-
-  // Task Manager State
   const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(false);
   const [activeTaskClient, setActiveTaskClient] = useState<Client | null>(null);
   const [clientTasks, setClientTasks] = useState<Task[]>([]);
@@ -150,7 +149,7 @@ export default function Dashboard() {
   const [newTaskDesc, setNewTaskDesc] = useState("");
   const [newTaskDate, setNewTaskDate] = useState("");
 
-  // --- DARK MODE LOGIC ---
+  // --- DARK MODE ---
   useEffect(() => {
     const savedTheme = localStorage.getItem("theme");
     if (
@@ -171,27 +170,13 @@ export default function Dashboard() {
     }
   }, [darkMode]);
 
-  // --- FILTER LOGIC ---
-  const filteredClients = clients.filter((client) => {
-    const matchesSearch =
-      (client.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (client.email || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (client.service || "").toLowerCase().includes(searchQuery.toLowerCase());
-
-    const matchesStatus =
-      filterStatus === "All" || client.status === filterStatus;
-
-    return matchesSearch && matchesStatus;
-  });
-
-  // --- EFFECT: AUTH CHECK ---
+  // --- DATA FETCH ---
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setSessionLoading(false);
       if (session) fetchAllData();
     });
-
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -205,25 +190,20 @@ export default function Dashboard() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // --- DATA FUNCTIONS ---
   const fetchAllData = async () => {
     setIsLoading(true);
-
     const clientsResult = await supabase
       .from("clients")
       .select("*")
       .order("created_at", { ascending: false });
     if (clientsResult.data) setClients(clientsResult.data);
-
     const logsResult = await supabase
       .from("email_logs")
       .select("*")
       .order("created_at", { ascending: false });
     if (logsResult.data) setEmailLogs(logsResult.data);
-
     const settingsResult = await supabase.from("settings").select("*").single();
     if (settingsResult.data) setSettings(settingsResult.data);
-
     const tasksResult = await supabase
       .from("tasks")
       .select("*")
@@ -231,14 +211,14 @@ export default function Dashboard() {
       .order("due_date", { ascending: true })
       .limit(20);
     if (tasksResult.data) setGlobalTasks(tasksResult.data);
-
     setIsLoading(false);
   };
 
   const handleLogout = async () => await supabase.auth.signOut();
 
+  // --- HELPERS (Keep these here for now or move to utilities later) ---
   const saveSettings = async () => {
-    setIsSaving(true);
+    /* ... (Same as before) ... */ setIsSaving(true);
     if (settings.id) {
       await supabase
         .from("settings")
@@ -258,7 +238,6 @@ export default function Dashboard() {
     alert("Settings Saved!");
     setIsSaving(false);
   };
-
   const addFakeClient = async () => {
     setIsSaving(true);
     const newClientData = {
@@ -272,12 +251,13 @@ export default function Dashboard() {
       invoice_date: new Date().toISOString().split("T")[0],
       due_date: null,
       notes: "",
+      type: "client",
     };
     const { data, error } = await supabase
       .from("clients")
       .insert([newClientData])
       .select();
-    if (error) alert("Error adding client: " + error.message);
+    if (error) alert("Error: " + error.message);
     else if (data) {
       setClients([data[0], ...clients]);
       setActiveTab("clients");
@@ -286,7 +266,6 @@ export default function Dashboard() {
     }
     setIsSaving(false);
   };
-
   const handleSave = async (id: number) => {
     setIsSaving(true);
     const { error } = await supabase
@@ -303,14 +282,12 @@ export default function Dashboard() {
     }
     setIsSaving(false);
   };
-
   const deleteClient = async (id: number) => {
-    if (!confirm("Delete this client and ALL their tasks?")) return;
+    if (!confirm("Delete?")) return;
     await supabase.from("tasks").delete().eq("client_id", id);
     const { error } = await supabase.from("clients").delete().eq("id", id);
     if (!error) setClients(clients.filter((c) => c.id !== id));
   };
-
   const handleInputChange = (
     e: React.ChangeEvent<
       HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
@@ -318,21 +295,18 @@ export default function Dashboard() {
   ) => {
     setEditFormData({ ...editFormData, [e.target.name]: e.target.value });
   };
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Completed":
         return "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800";
       case "In Progress":
         return "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800";
-      case "Pending":
-        return "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800";
       default:
-        return "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700";
+        return "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800";
     }
   };
 
-  // --- TASK MANAGER LOGIC ---
+  // --- TASK & EMAIL FUNCTIONS ---
   const openTaskDrawer = async (client: Client) => {
     setActiveTaskClient(client);
     setIsTaskDrawerOpen(true);
@@ -345,7 +319,6 @@ export default function Dashboard() {
       .order("due_date", { ascending: true });
     if (data) setClientTasks(data);
   };
-
   const addTask = async () => {
     if (!newTaskInput.trim() || !activeTaskClient) return;
     const { data } = await supabase
@@ -360,7 +333,6 @@ export default function Dashboard() {
         },
       ])
       .select();
-
     if (data) {
       const newTask = data[0];
       setClientTasks([...clientTasks, newTask]);
@@ -376,7 +348,6 @@ export default function Dashboard() {
       setNewTaskDate("");
     }
   };
-
   const toggleTask = async (task: Task) => {
     const newStatus = !task.is_completed;
     setClientTasks(
@@ -384,22 +355,18 @@ export default function Dashboard() {
         t.id === task.id ? { ...t, is_completed: newStatus } : t
       )
     );
-    if (newStatus === true) {
+    if (newStatus === true)
       setGlobalTasks(globalTasks.filter((t) => t.id !== task.id));
-    }
     await supabase
       .from("tasks")
       .update({ is_completed: newStatus })
       .eq("id", task.id);
   };
-
   const deleteTask = async (taskId: number) => {
     setClientTasks(clientTasks.filter((t) => t.id !== taskId));
     setGlobalTasks(globalTasks.filter((t) => t.id !== taskId));
     await supabase.from("tasks").delete().eq("id", taskId);
   };
-
-  // --- INVOICE & EMAIL ---
   const generateInvoice = (client: Client) => {
     const doc = new jsPDF();
     doc.setFontSize(20);
@@ -415,12 +382,6 @@ export default function Dashboard() {
     doc.setFont("helvetica", "normal");
     doc.text(client.name, 140, 46);
     doc.text(`Invoice #: INV-${client.id}`, 20, 70);
-    doc.text(
-      `Date: ${client.invoice_date || new Date().toLocaleDateString()}`,
-      20,
-      76
-    );
-    doc.text(`Due Date: ${client.due_date || "-"}`, 20, 82);
     autoTable(doc, {
       startY: 90,
       head: [["Description", "Amount"]],
@@ -429,7 +390,6 @@ export default function Dashboard() {
     });
     doc.save(`Invoice_${client.name.replace(/\s+/g, "_")}.pdf`);
   };
-
   const openEmailModal = (client: Client) => {
     setEmailData({
       to: client.email,
@@ -439,7 +399,6 @@ export default function Dashboard() {
     });
     setIsEmailOpen(true);
   };
-
   const handleSendEmail = (e: React.FormEvent) => {
     e.preventDefault();
     setIsSending(true);
@@ -481,25 +440,30 @@ export default function Dashboard() {
       );
   };
 
-  // --- STATS CALC ---
-  const totalRevenue = clients.reduce(
-    (sum, client) => sum + (Number(client.price) || 0),
-    0
-  );
-  const activeJobs = clients.filter((c) => c.status === "In Progress").length;
-  const completedJobs = clients.filter((c) => c.status === "Completed").length;
-  const chartData = clients.reduce((acc: any[], client) => {
-    const existing = acc.find((item) => item.name === client.service);
-    if (existing) {
-      existing.revenue += Number(client.price) || 0;
-    } else {
-      acc.push({
-        name: client.service || "Other",
-        revenue: Number(client.price) || 0,
-      });
-    }
-    return acc;
-  }, []);
+  // --- STATS ---
+  const totalRevenue = clients
+    .filter((c) => c.type === "client")
+    .reduce((sum, client) => sum + (Number(client.price) || 0), 0);
+  const activeJobs = clients.filter(
+    (c) => c.status === "In Progress" && c.type === "client"
+  ).length;
+  const completedJobs = clients.filter(
+    (c) => c.status === "Completed" && c.type === "client"
+  ).length;
+  const chartData = clients
+    .filter((c) => c.type === "client")
+    .reduce((acc: any[], client) => {
+      const existing = acc.find((item) => item.name === client.service);
+      if (existing) {
+        existing.revenue += Number(client.price) || 0;
+      } else {
+        acc.push({
+          name: client.service || "Other",
+          revenue: Number(client.price) || 0,
+        });
+      }
+      return acc;
+    }, []);
 
   if (sessionLoading)
     return (
@@ -509,10 +473,29 @@ export default function Dashboard() {
     );
   if (!session) return <AuthScreen />;
 
-  // --- RENDER ---
+  // --- MAIN FILTER LOGIC ---
+  // Only show "Clients" in the client tab, and "Leads" in the leads tab
+  const displayedClients = clients.filter(
+    (c) =>
+      c.type !== "lead" &&
+      c.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="flex h-screen overflow-hidden font-sans relative transition-colors duration-300 bg-[var(--bg-main)] text-[var(--text-main)]">
-      {/* TASK DRAWER */}
+      {/* 1. SIDEBAR (Component) */}
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        mobileMenuOpen={mobileMenuOpen}
+        setMobileMenuOpen={setMobileMenuOpen}
+        darkMode={darkMode}
+        setDarkMode={setDarkMode}
+        handleLogout={handleLogout}
+        companyName={settings.company_name}
+      />
+
+      {/* 2. TASK DRAWER (Keep inline for now as it shares state heavily) */}
       {isTaskDrawerOpen && activeTaskClient && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div
@@ -532,27 +515,6 @@ export default function Dashboard() {
                 <X size={20} className="text-sub" />
               </button>
             </div>
-            <div className="mb-2 flex justify-between text-xs font-semibold text-sub">
-              <span>
-                {clientTasks.filter((t) => t.is_completed).length} /{" "}
-                {clientTasks.length} Completed
-              </span>
-            </div>
-            <div className="mb-6 bg-gray-200 dark:bg-slate-700 rounded-full h-2.5 w-full overflow-hidden">
-              <div
-                className="bg-blue-600 h-2.5 rounded-full transition-all duration-500"
-                style={{
-                  width: `${
-                    clientTasks.length > 0
-                      ? (clientTasks.filter((t) => t.is_completed).length /
-                          clientTasks.length) *
-                        100
-                      : 0
-                  }%`,
-                }}
-              ></div>
-            </div>
-
             <div className="mb-6 space-y-3 p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-main)]">
               <input
                 type="text"
@@ -562,25 +524,13 @@ export default function Dashboard() {
                 onChange={(e) => setNewTaskInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addTask()}
               />
-              <textarea
-                placeholder="Details (Optional)"
-                className="w-full p-2 rounded-lg text-sm input-base h-16 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={newTaskDesc}
-                onChange={(e) => setNewTaskDesc(e.target.value)}
-              ></textarea>
               <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <input
-                    type="date"
-                    className="w-full p-2 pl-8 rounded-lg text-sm input-base focus:outline-none focus:ring-2 focus:ring-blue-500 text-sub"
-                    value={newTaskDate}
-                    onChange={(e) => setNewTaskDate(e.target.value)}
-                  />
-                  <Calendar
-                    className="absolute left-2 top-2.5 text-sub"
-                    size={16}
-                  />
-                </div>
+                <input
+                  type="date"
+                  className="w-full p-2 rounded-lg text-sm input-base text-sub"
+                  value={newTaskDate}
+                  onChange={(e) => setNewTaskDate(e.target.value)}
+                />
                 <button
                   onClick={addTask}
                   className="bg-blue-600 text-white px-4 rounded-lg hover:bg-blue-700 font-bold text-sm shadow-sm"
@@ -589,7 +539,6 @@ export default function Dashboard() {
                 </button>
               </div>
             </div>
-
             <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
               {clientTasks.map((task) => (
                 <div
@@ -640,7 +589,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* EMAIL MODAL */}
+      {/* 3. EMAIL MODAL (Inline) */}
       {isEmailOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="card-base rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4">
@@ -655,7 +604,7 @@ export default function Dashboard() {
                 onChange={(e) =>
                   setEmailData({ ...emailData, subject: e.target.value })
                 }
-                className="w-full p-2 rounded-lg text-sm input-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full p-2 rounded-lg text-sm input-base"
               />
             </div>
             <div>
@@ -663,7 +612,7 @@ export default function Dashboard() {
                 Message
               </label>
               <textarea
-                className="w-full p-2 rounded-lg text-sm input-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full p-2 rounded-lg text-sm input-base"
                 rows={5}
                 value={emailData.message}
                 onChange={(e) =>
@@ -695,60 +644,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* SIDEBAR */}
-      <aside
-        className={`fixed md:static inset-y-0 left-0 z-50 w-64 card-base border-r border-[var(--border)] transform transition-transform duration-200 ease-in-out ${
-          mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
-        } md:translate-x-0 flex flex-col`}
-      >
-        <div className="p-6 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-blue-600">
-            {settings.company_name}
-          </h1>
-          <button
-            className="md:hidden text-sub"
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            <X size={24} />
-          </button>
-        </div>
-        <nav className="px-4 space-y-2 flex-1">
-          {["dashboard", "clients", "history", "settings"].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => {
-                setActiveTab(tab);
-                setMobileMenuOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors capitalize ${
-                activeTab === tab
-                  ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600"
-                  : "text-sub hover:bg-[var(--bg-main)]"
-              }`}
-            >
-              <LayoutDashboard size={20} /> {tab}
-            </button>
-          ))}
-        </nav>
-        <div className="p-4 border-t border-[var(--border)] space-y-2">
-          <button
-            onClick={() => setDarkMode(!darkMode)}
-            className="w-full flex items-center gap-3 px-4 py-2 rounded-lg font-medium text-sub hover:bg-[var(--bg-main)] transition-colors"
-          >
-            {darkMode ? <Sun size={20} /> : <Moon size={20} />}{" "}
-            {darkMode ? "Light Mode" : "Dark Mode"}
-          </button>
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-4 py-2 rounded-lg font-medium text-sub hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-          >
-            <LogIn className="rotate-180" size={20} /> Logout
-          </button>
-        </div>
-      </aside>
-
-      {/* MAIN CONTENT */}
+      {/* MAIN CONTENT AREA */}
       <main className="flex-1 overflow-y-auto p-4 md:p-6 transition-colors duration-200">
+        {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div className="flex items-center gap-3">
             <button
@@ -800,7 +698,9 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* DASHBOARD TAB */}
+        {/* --- TABS --- */}
+
+        {/* 1. DASHBOARD */}
         {activeTab === "dashboard" && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -839,7 +739,10 @@ export default function Dashboard() {
                   <h3 className="text-2xl font-bold mt-1">
                     $
                     {clients.length > 0
-                      ? Math.round(totalRevenue / clients.length)
+                      ? Math.round(
+                          totalRevenue /
+                            clients.filter((c) => c.type === "client").length
+                        )
                       : 0}
                   </h3>
                 </div>
@@ -848,9 +751,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
-
             <div className="grid grid-cols-1 lg:grid-cols-7 gap-6">
-              {/* Chart */}
               <div className="card-base p-6 rounded-xl shadow-sm lg:col-span-4 flex flex-col h-[600px]">
                 <h3 className="font-semibold mb-6">Revenue by Service</h3>
                 <div className="flex-1 min-h-0">
@@ -892,8 +793,6 @@ export default function Dashboard() {
                   </ResponsiveContainer>
                 </div>
               </div>
-
-              {/* Status & Tasks */}
               <div className="lg:col-span-3 flex flex-col h-[600px] card-base rounded-xl shadow-sm overflow-hidden">
                 <div className="flex border-b border-[var(--border)] divide-x divide-[var(--border)] bg-[var(--bg-main)]">
                   <div className="flex-1 p-3 text-center">
@@ -921,7 +820,6 @@ export default function Dashboard() {
                     </span>
                   </div>
                 </div>
-
                 <div className="flex-1 flex flex-col p-6 min-h-0">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="font-semibold flex items-center gap-2">
@@ -949,10 +847,12 @@ export default function Dashboard() {
                               if (client) openTaskDrawer(client);
                             }}
                           >
+                            {" "}
                             <div className="flex justify-between items-start">
+                              {" "}
                               <p className="text-sm font-semibold line-clamp-1 group-hover:text-blue-500">
                                 {task.title}
-                              </p>
+                              </p>{" "}
                               {task.due_date && (
                                 <span
                                   className={`text-[10px] whitespace-nowrap ml-2 ${
@@ -966,17 +866,18 @@ export default function Dashboard() {
                                     { month: "short", day: "numeric" }
                                   )}
                                 </span>
-                              )}
-                            </div>
+                              )}{" "}
+                            </div>{" "}
                             <div className="flex justify-between items-center mt-1">
+                              {" "}
                               <p className="text-xs text-sub font-medium">
                                 {clientName}
-                              </p>
+                              </p>{" "}
                               <ArrowRight
                                 size={14}
                                 className="text-sub group-hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-all"
-                              />
-                            </div>
+                              />{" "}
+                            </div>{" "}
                           </div>
                         );
                       })
@@ -996,7 +897,15 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* CLIENTS TAB */}
+        {/* 2. LEADS TAB (Imported Component) */}
+        {activeTab === "leads" && (
+          <LeadsView
+            leads={clients.filter((c) => c.type === "lead")}
+            refreshData={fetchAllData}
+          />
+        )}
+
+        {/* 3. CLIENTS TAB */}
         {activeTab === "clients" && (
           <div className="space-y-4">
             <div className="flex flex-col md:flex-row gap-4 justify-between items-center card-base p-4 rounded-xl shadow-sm">
@@ -1036,7 +945,7 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border)]">
-                  {filteredClients.map((client) => (
+                  {displayedClients.map((client) => (
                     <tr
                       key={client.id}
                       className="hover:bg-[var(--bg-main)] transition-colors"
@@ -1196,19 +1105,14 @@ export default function Dashboard() {
                           </td>
                           <td className="px-6 py-4">
                             <span
-                              className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                                client.status === "Completed"
-                                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                                  : client.status === "In Progress"
-                                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                  : "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
-                              }`}
+                              className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(
+                                client.status
+                              )}`}
                             >
                               {client.status}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-right flex justify-end gap-2">
-                            {/* ✅ RESTORED BUTTONS */}
                             <button
                               onClick={() => openTaskDrawer(client)}
                               className="text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 p-2 rounded"
@@ -1270,7 +1174,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ✅ RESTORED HISTORY TAB */}
+        {/* 4. HISTORY TAB */}
         {activeTab === "history" && (
           <div className="card-base rounded-xl shadow-sm overflow-hidden">
             <table className="w-full text-left text-sm">
@@ -1323,13 +1227,12 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ✅ RESTORED SETTINGS TAB */}
+        {/* 5. SETTINGS TAB */}
         {activeTab === "settings" && (
           <div className="max-w-2xl card-base p-8 rounded-xl shadow-sm">
             <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
               <Settings size={20} /> Admin Settings
             </h3>
-            {/* Image Preview Block */}
             <div className="mb-6 flex items-center gap-4">
               {settings.avatar_url ? (
                 <img
