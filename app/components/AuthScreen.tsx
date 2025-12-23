@@ -42,7 +42,7 @@ export default function AuthScreen() {
           </div>
         </div>
         <h2 className="text-2xl font-bold text-center text-gray-800 mb-2">
-          ServiceCRM
+          Nafta24
         </h2>
         <p className="text-center text-gray-500 mb-8">
           {isSignUp

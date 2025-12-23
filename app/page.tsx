@@ -112,9 +112,10 @@ export default function Dashboard() {
   // Data State
   const [clients, setClients] = useState<Client[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
+  // ✅ UPDATED DEFAULT NAME TO NAFTA24
   const [settings, setSettings] = useState<AdminSettings>({
     full_name: "Admin",
-    company_name: "ServiceCRM",
+    company_name: "Nafta24",
     avatar_url: "",
   });
   const [globalTasks, setGlobalTasks] = useState<Task[]>([]);
