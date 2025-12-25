@@ -20,7 +20,6 @@ import {
   Calendar,
   Clock,
   ChevronDown,
-  Flag,
   Target,
 } from "lucide-react";
 import { supabase } from "../supabaseClient";
@@ -151,25 +150,82 @@ export default function ClientProfile({
       setNewAsset({ title: "", url: "", credentials: "" });
     }
   };
-  const sendEmail = (e: React.FormEvent) => {
+
+  // --- NEW: UPLOAD FILE & GET LINK ---
+  const uploadAttachment = async (file: File): Promise<string | null> => {
+    const fileExt = file.name.split(".").pop();
+    const fileName = `${client.id}_${Date.now()}.${fileExt}`;
+    const filePath = `${fileName}`;
+
+    // Upload
+    const { error: uploadError } = await supabase.storage
+      .from("attachments")
+      .upload(filePath, file);
+    if (uploadError) {
+      alert("Upload failed: " + uploadError.message);
+      return null;
+    }
+
+    // Get URL
+    const { data } = supabase.storage
+      .from("attachments")
+      .getPublicUrl(filePath);
+    return data.publicUrl;
+  };
+
+  // --- EMAIL LOGIC (UPDATED) ---
+  const sendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     setSending(true);
-    const templateParams: any = {
-      to_email: formData.email,
-      to_name: formData.name,
-      subject: emailSubject,
-      message: emailBody,
-    };
-    emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams, PUBLIC_KEY).then(
-      () => {
-        alert("Email Sent!");
-        setSending(false);
-      },
-      (err) => {
-        alert("Failed: " + JSON.stringify(err));
-        setSending(false);
+
+    try {
+      let finalMessage = emailBody;
+      let attachmentUrl = "";
+
+      // 1. Upload File if exists
+      if (emailFile) {
+        const url = await uploadAttachment(emailFile);
+        if (!url) {
+          setSending(false);
+          return;
+        } // Stop if upload fails
+        attachmentUrl = url;
+        // Append link to message so it appears in email
+        finalMessage += `\n\n📎 Attachment: ${emailFile.name}\nDownload here: ${url}`;
       }
-    );
+
+      // 2. Send via EmailJS
+      const templateParams: any = {
+        to_email: formData.email,
+        to_name: formData.name,
+        subject: emailSubject,
+        message: finalMessage,
+      };
+
+      await emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams, PUBLIC_KEY);
+
+      // 3. Log to History
+      await supabase.from("email_logs").insert([
+        {
+          client_name: formData.name,
+          email: formData.email,
+          subject: emailSubject,
+          message: finalMessage,
+          status: "Sent",
+        },
+      ]);
+
+      // 4. Cleanup
+      alert("Email Sent Successfully!");
+      setEmailSubject("");
+      setEmailBody("");
+      setEmailFile(null);
+      onUpdate();
+    } catch (error: any) {
+      alert("Failed to send: " + (error.message || JSON.stringify(error)));
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -245,11 +301,10 @@ export default function ClientProfile({
         {/* CONTENT */}
         <div className="flex-1 overflow-y-auto bg-[var(--bg-main)] custom-scrollbar">
           <div className="max-w-5xl mx-auto p-8">
-            {/* OVERVIEW TAB (UPDATED WITH FOLLOW UP) */}
+            {/* OVERVIEW TAB */}
             {activeTab === "overview" && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-6">
-                  {/* Strategy Box (NEW) */}
                   <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-[var(--border)] shadow-sm">
                     <h3 className="font-bold text-sm text-sub uppercase mb-4 tracking-wider flex items-center gap-2">
                       <Target size={16} /> Strategy & Source
@@ -259,19 +314,17 @@ export default function ClientProfile({
                         <label className="text-xs text-sub font-semibold mb-1 block">
                           Next Follow-Up
                         </label>
-                        <div className="relative">
-                          <input
-                            type="date"
-                            className="w-full input-base p-2.5 rounded-lg"
-                            value={formData.next_follow_up || ""}
-                            onChange={(e) =>
-                              setFormData({
-                                ...formData,
-                                next_follow_up: e.target.value,
-                              })
-                            }
-                          />
-                        </div>
+                        <input
+                          type="date"
+                          className="w-full input-base p-2.5 rounded-lg"
+                          value={formData.next_follow_up || ""}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              next_follow_up: e.target.value,
+                            })
+                          }
+                        />
                       </div>
                       <div>
                         <label className="text-xs text-sub font-semibold mb-1 block">
@@ -293,8 +346,6 @@ export default function ClientProfile({
                       </div>
                     </div>
                   </div>
-
-                  {/* Contact Box */}
                   <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-[var(--border)] shadow-sm">
                     <h3 className="font-bold text-sm text-sub uppercase mb-4 tracking-wider">
                       Contact Information
@@ -352,7 +403,6 @@ export default function ClientProfile({
                     </button>
                   </div>
                 </div>
-
                 <div className="space-y-6">
                   <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-[var(--border)] shadow-sm">
                     <h3 className="font-bold text-sm text-sub uppercase mb-4 tracking-wider">
@@ -420,7 +470,7 @@ export default function ClientProfile({
               </div>
             )}
 
-            {/* WORK TAB (Assets & Tasks) */}
+            {/* WORK TAB */}
             {activeTab === "work" && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 h-full">
                 <div className="flex flex-col h-[500px] bg-white dark:bg-slate-800 rounded-xl border border-[var(--border)] shadow-sm overflow-hidden">
@@ -609,7 +659,7 @@ export default function ClientProfile({
               </div>
             )}
 
-            {/* FINANCIALS & COMMUNICATE TABS */}
+            {/* FINANCIALS & COMMUNICATE */}
             {activeTab === "financials" && (
               <div className="max-w-4xl mx-auto">
                 <InvoiceGenerator
@@ -619,6 +669,8 @@ export default function ClientProfile({
                 />
               </div>
             )}
+
+            {/* COMMUNICATE (UPDATED EMAIL) */}
             {activeTab === "communicate" && (
               <div className="max-w-2xl mx-auto space-y-6">
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-[var(--border)] shadow-sm">
@@ -636,6 +688,7 @@ export default function ClientProfile({
                       value={emailBody}
                       onChange={(e) => setEmailBody(e.target.value)}
                     />
+
                     <div className="flex items-center justify-between pt-2">
                       <label className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-slate-700 rounded-lg text-sm hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors">
                         <Paperclip size={16} />{" "}
@@ -660,6 +713,7 @@ export default function ClientProfile({
                         </button>
                       )}
                     </div>
+
                     <button
                       onClick={sendEmail}
                       disabled={sending}
@@ -672,6 +726,10 @@ export default function ClientProfile({
                       )}{" "}
                       Send Email
                     </button>
+                    <p className="text-xs text-center text-sub mt-4 opacity-70">
+                      File attachments will be uploaded securely and sent as a
+                      download link.
+                    </p>
                   </div>
                 </div>
               </div>
