@@ -76,7 +76,8 @@ interface Client {
   due_date: string;
   notes: string;
   type: string; // ✅ NEW
-  lead_score: number; // ✅ NEW
+  source: string; // ✅ ADD THIS
+  next_follow_up: string;
   pipeline_stage: string; // ✅ NEW
 }
 
@@ -467,7 +468,7 @@ export default function Dashboard() {
 
   if (sessionLoading)
     return (
-      <div className="h-screen flex items-center justify-center bg-[var(--bg-main)]">
+      <div className="h-screen flex items-center justify-center bg-(--bg-main)">
         <Loader2 className="animate-spin text-blue-600" />
       </div>
     );
@@ -482,7 +483,7 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden font-sans relative transition-colors duration-300 bg-[var(--bg-main)] text-[var(--text-main)]">
+    <div className="flex h-screen overflow-hidden font-sans relative transition-colors duration-300 bg-(--bg-main) text-(--text-main)">
       {/* 1. SIDEBAR (Component) */}
       <Sidebar
         activeTab={activeTab}
@@ -515,7 +516,7 @@ export default function Dashboard() {
                 <X size={20} className="text-sub" />
               </button>
             </div>
-            <div className="mb-6 space-y-3 p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-main)]">
+            <div className="mb-6 space-y-3 p-4 rounded-xl border border-(--border) bg-(--bg-main)">
               <input
                 type="text"
                 placeholder="Task Title..."
@@ -545,14 +546,14 @@ export default function Dashboard() {
                   key={task.id}
                   className={`p-3 rounded-lg border group transition-all ${
                     task.is_completed
-                      ? "bg-[var(--bg-main)] opacity-70"
+                      ? "bg-(--bg-main) opacity-70"
                       : "card-base hover:border-blue-500 shadow-sm"
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     <button
                       onClick={() => toggleTask(task)}
-                      className="mt-1 flex-shrink-0 text-sub hover:text-blue-500"
+                      className="mt-1 shrink-0 text-sub hover:text-blue-500"
                     >
                       {task.is_completed ? (
                         <CheckSquare size={20} className="text-green-500" />
@@ -623,7 +624,7 @@ export default function Dashboard() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setIsEmailOpen(false)}
-                className="px-4 py-2 bg-[var(--bg-main)] rounded text-sub hover:opacity-80"
+                className="px-4 py-2 bg-(--bg-main) rounded text-sub hover:opacity-80"
               >
                 Cancel
               </button>
@@ -669,7 +670,7 @@ export default function Dashboard() {
               <img
                 src={settings.avatar_url}
                 alt="Profile"
-                className="w-10 h-10 rounded-full border border-[var(--border)] object-cover"
+                className="w-10 h-10 rounded-full border border-(--border) object-cover"
               />
             ) : (
               <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600">
@@ -752,7 +753,7 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-7 gap-6">
-              <div className="card-base p-6 rounded-xl shadow-sm lg:col-span-4 flex flex-col h-[600px]">
+              <div className="card-base p-6 rounded-xl shadow-sm lg:col-span-4 flex flex-col h-150">
                 <h3 className="font-semibold mb-6">Revenue by Service</h3>
                 <div className="flex-1 min-h-0">
                   <ResponsiveContainer width="100%" height="100%">
@@ -793,8 +794,8 @@ export default function Dashboard() {
                   </ResponsiveContainer>
                 </div>
               </div>
-              <div className="lg:col-span-3 flex flex-col h-[600px] card-base rounded-xl shadow-sm overflow-hidden">
-                <div className="flex border-b border-[var(--border)] divide-x divide-[var(--border)] bg-[var(--bg-main)]">
+              <div className="lg:col-span-3 flex flex-col h-150 card-base rounded-xl shadow-sm overflow-hidden">
+                <div className="flex border-b border-(--border) divide-x divide-(--border) bg-(--bg-main)">
                   <div className="flex-1 p-3 text-center">
                     <span className="block text-xs text-sub uppercase font-bold tracking-wider">
                       Active
@@ -839,7 +840,7 @@ export default function Dashboard() {
                         return (
                           <div
                             key={task.id}
-                            className="p-3 bg-[var(--bg-main)] rounded-lg border border-[var(--border)] hover:border-blue-500 transition-colors cursor-pointer group"
+                            className="p-3 bg-(--bg-main) rounded-lg border border-(--border) hover:border-blue-500 transition-colors cursor-pointer group"
                             onClick={() => {
                               const client = clients.find(
                                 (c) => c.id === task.client_id
@@ -934,8 +935,8 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="card-base rounded-xl shadow-sm overflow-hidden overflow-x-auto">
-              <table className="w-full text-left text-sm min-w-[1000px]">
-                <thead className="bg-[var(--bg-main)] text-sub">
+              <table className="w-full text-left text-sm min-w-250">
+                <thead className="bg-(--bg-main) text-sub">
                   <tr>
                     <th className="px-6 py-4">Client</th>
                     <th className="px-6 py-4">Service</th>
@@ -944,11 +945,11 @@ export default function Dashboard() {
                     <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[var(--border)]">
+                <tbody className="divide-y divide-(--border)">
                   {displayedClients.map((client) => (
                     <tr
                       key={client.id}
-                      className="hover:bg-[var(--bg-main)] transition-colors"
+                      className="hover:bg-(--bg-main) transition-colors"
                     >
                       {editingId === client.id ? (
                         <td className="px-6 py-4" colSpan={5}>
@@ -1095,7 +1096,7 @@ export default function Dashboard() {
                               )}
                               {client.notes && (
                                 <span
-                                  className="flex items-center gap-1 text-sub mt-1 max-w-[150px] truncate"
+                                  className="flex items-center gap-1 text-sub mt-1 max-w-37.5 truncate"
                                   title={client.notes}
                                 >
                                   <StickyNote size={12} /> {client.notes}
@@ -1132,7 +1133,7 @@ export default function Dashboard() {
                                 setEditingId(client.id);
                                 setEditFormData(client);
                               }}
-                              className="text-sub hover:bg-[var(--bg-main)] p-2 rounded"
+                              className="text-sub hover:bg-(--bg-main) p-2 rounded"
                               title="Edit"
                             >
                               <Pencil size={16} />
@@ -1178,7 +1179,7 @@ export default function Dashboard() {
         {activeTab === "history" && (
           <div className="card-base rounded-xl shadow-sm overflow-hidden">
             <table className="w-full text-left text-sm">
-              <thead className="bg-[var(--bg-main)] text-sub">
+              <thead className="bg-(--bg-main) text-sub">
                 <tr>
                   <th className="px-6 py-4">Date</th>
                   <th className="px-6 py-4">To</th>
@@ -1186,7 +1187,7 @@ export default function Dashboard() {
                   <th className="px-6 py-4 w-10"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[var(--border)]">
+              <tbody className="divide-y divide-(--border)">
                 {emailLogs.map((log) => (
                   <React.Fragment key={log.id}>
                     <tr
@@ -1195,7 +1196,7 @@ export default function Dashboard() {
                           expandedLogId === log.id ? null : log.id
                         )
                       }
-                      className="hover:bg-[var(--bg-main)] transition-colors cursor-pointer"
+                      className="hover:bg-(--bg-main) transition-colors cursor-pointer"
                     >
                       <td className="px-6 py-4">
                         {new Date(log.created_at).toLocaleDateString()}
@@ -1211,7 +1212,7 @@ export default function Dashboard() {
                       </td>
                     </tr>
                     {expandedLogId === log.id && (
-                      <tr className="bg-[var(--bg-main)]">
+                      <tr className="bg-(--bg-main)">
                         <td
                           colSpan={4}
                           className="px-6 py-4 text-sub font-mono text-xs p-4 whitespace-pre-wrap"
@@ -1238,7 +1239,7 @@ export default function Dashboard() {
                 <img
                   src={settings.avatar_url}
                   alt="Profile"
-                  className="w-20 h-20 rounded-full border border-[var(--border)] object-cover"
+                  className="w-20 h-20 rounded-full border border-(--border) object-cover"
                 />
               ) : (
                 <div className="w-20 h-20 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">

@@ -6,8 +6,12 @@ import {
   Filter,
   UserPlus,
   Trash2,
-  Flame,
   ArrowRight,
+  Calendar,
+  Globe,
+  Linkedin,
+  MessageCircle,
+  Link as LinkIcon,
 } from "lucide-react";
 import { supabase } from "../supabaseClient";
 
@@ -17,7 +21,8 @@ interface Client {
   email: string;
   phone: string;
   type: string;
-  lead_score: number;
+  source: string; // ✅ CHANGED
+  next_follow_up: string; // ✅ CHANGED
   pipeline_stage: string;
   notes: string;
 }
@@ -34,7 +39,7 @@ export default function LeadsView({ leads, refreshData }: Props) {
     name: "",
     email: "",
     phone: "",
-    notes: "",
+    source: "Website",
   });
 
   // Filter Logic
@@ -47,17 +52,15 @@ export default function LeadsView({ leads, refreshData }: Props) {
     if (!newLead.name) return;
     const { error } = await supabase
       .from("clients")
-      .insert([
-        { ...newLead, type: "lead", lead_score: 10, pipeline_stage: "New" },
-      ]);
+      .insert([{ ...newLead, type: "lead", pipeline_stage: "New" }]);
     if (!error) {
       refreshData();
       setIsAdding(false);
-      setNewLead({ name: "", email: "", phone: "", notes: "" });
+      setNewLead({ name: "", email: "", phone: "", source: "Website" });
     }
   };
 
-  // Update Score/Stage
+  // Update Fields
   const updateLead = async (id: number, field: string, value: any) => {
     await supabase
       .from("clients")
@@ -76,11 +79,28 @@ export default function LeadsView({ leads, refreshData }: Props) {
     refreshData();
   };
 
-  // Delete
   const deleteLead = async (id: number) => {
     if (!confirm("Delete this lead?")) return;
     await supabase.from("clients").delete().eq("id", id);
     refreshData();
+  };
+
+  // Helper to get Source Icon
+  const getSourceIcon = (source: string) => {
+    switch (source) {
+      case "LinkedIn":
+        return <Linkedin size={14} className="text-blue-700" />;
+      case "Referral":
+        return <MessageCircle size={14} className="text-green-600" />;
+      case "Upwork":
+        return (
+          <div className="text-[10px] font-bold text-green-600 border border-green-600 rounded px-1">
+            UP
+          </div>
+        );
+      default:
+        return <Globe size={14} className="text-sub" />;
+    }
   };
 
   return (
@@ -107,7 +127,7 @@ export default function LeadsView({ leads, refreshData }: Props) {
 
       {/* Quick Add Form */}
       {isAdding && (
-        <div className="card-base p-4 rounded-xl shadow-inner bg-blue-50 dark:bg-blue-900/10 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+        <div className="card-base p-4 rounded-xl shadow-inner bg-blue-50 dark:bg-blue-900/10 grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
           <div className="space-y-1">
             <label className="text-xs text-sub">Name</label>
             <input
@@ -136,6 +156,22 @@ export default function LeadsView({ leads, refreshData }: Props) {
               }
             />
           </div>
+          <div className="space-y-1">
+            <label className="text-xs text-sub">Source</label>
+            <select
+              className="w-full input-base p-2 rounded"
+              value={newLead.source}
+              onChange={(e) =>
+                setNewLead({ ...newLead, source: e.target.value })
+              }
+            >
+              <option>Website</option>
+              <option>LinkedIn</option>
+              <option>Referral</option>
+              <option>Upwork</option>
+              <option>Cold Call</option>
+            </select>
+          </div>
           <button
             onClick={handleAddLead}
             className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
@@ -147,20 +183,20 @@ export default function LeadsView({ leads, refreshData }: Props) {
 
       {/* Leads Table */}
       <div className="card-base rounded-xl shadow-sm overflow-hidden overflow-x-auto">
-        <table className="w-full text-left text-sm min-w-[900px]">
-          <thead className="bg-[var(--bg-main)] text-sub">
+        <table className="w-full text-left text-sm min-w-225">
+          <thead className="bg-(--bg-main) text-sub">
             <tr>
               <th className="px-6 py-4">Lead Name</th>
-              <th className="px-6 py-4">Score (0-100)</th>
+              <th className="px-6 py-4">Source & Follow Up</th>
               <th className="px-6 py-4">Stage</th>
               <th className="px-6 py-4 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[var(--border)]">
+          <tbody className="divide-y divide-(--border)">
             {filteredLeads.map((lead) => (
               <tr
                 key={lead.id}
-                className="hover:bg-[var(--bg-main)] transition-colors"
+                className="hover:bg-(--bg-main) transition-colors"
               >
                 <td className="px-6 py-4 font-medium">
                   {lead.name}
@@ -168,27 +204,49 @@ export default function LeadsView({ leads, refreshData }: Props) {
                     {lead.email} {lead.phone && `• ${lead.phone}`}
                   </div>
                 </td>
+
+                {/* ✅ NEW SOURCE & FOLLOW UP COLUMN */}
                 <td className="px-6 py-4">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      className="w-16 input-base p-1 rounded text-center"
-                      value={lead.lead_score || 0}
-                      onChange={(e) =>
-                        updateLead(lead.id, "lead_score", e.target.value)
-                      }
-                    />
-                    {(lead.lead_score || 0) > 70 && (
-                      <Flame
-                        size={16}
-                        className="text-orange-500 animate-pulse"
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1 rounded bg-(--bg-main) border border-(--border)">
+                        {getSourceIcon(lead.source)}
+                      </div>
+                      <select
+                        className="bg-transparent text-xs font-medium outline-none cursor-pointer hover:text-blue-500"
+                        value={lead.source || "Website"}
+                        onChange={(e) =>
+                          updateLead(lead.id, "source", e.target.value)
+                        }
+                      >
+                        <option>Website</option>
+                        <option>LinkedIn</option>
+                        <option>Referral</option>
+                        <option>Upwork</option>
+                        <option>Cold Call</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-sub">
+                      <Calendar size={12} />
+                      <input
+                        type="date"
+                        className="bg-transparent outline-none w-24 hover:text-blue-500 cursor-pointer"
+                        value={lead.next_follow_up || ""}
+                        onChange={(e) =>
+                          updateLead(lead.id, "next_follow_up", e.target.value)
+                        }
                       />
-                    )}
+                    </div>
                   </div>
                 </td>
+
                 <td className="px-6 py-4">
                   <select
-                    className="input-base p-1 rounded text-xs"
+                    className={`input-base px-2 py-1 rounded text-xs font-medium border ${
+                      lead.pipeline_stage === "Negotiation"
+                        ? "border-blue-500 text-blue-500"
+                        : "border-(--border)"
+                    }`}
                     value={lead.pipeline_stage || "New"}
                     onChange={(e) =>
                       updateLead(lead.id, "pipeline_stage", e.target.value)
