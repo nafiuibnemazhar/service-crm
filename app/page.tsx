@@ -39,12 +39,14 @@ import {
   Sun,
   MapPin,
   StickyNote,
+  Link as LinkIcon,
 } from "lucide-react";
 import emailjs from "@emailjs/browser";
 import { supabase } from "./supabaseClient";
 import AuthScreen from "./components/AuthScreen";
-import Sidebar from "./components/Sidebar"; // ✅ IMPORTED SIDEBAR
-import LeadsView from "./components/LeadsView"; // ✅ IMPORTED LEADS
+import Sidebar from "./components/Sidebar";
+import LeadsView from "./components/LeadsView";
+import AssetsManager from "./components/AssetsManager"; // ✅ NEW IMPORT
 import {
   BarChart,
   Bar,
@@ -62,7 +64,6 @@ const SERVICE_ID = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID!;
 const TEMPLATE_ID = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID!;
 const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY!;
 
-// --- INTERFACES (Keep these or move to a separate types.ts file later) ---
 interface Client {
   id: number;
   name: string;
@@ -75,10 +76,10 @@ interface Client {
   invoice_date: string;
   due_date: string;
   notes: string;
-  type: string; // ✅ NEW
-  source: string; // ✅ ADD THIS
+  type: string;
+  source: string;
   next_follow_up: string;
-  pipeline_stage: string; // ✅ NEW
+  pipeline_stage: string;
 }
 
 interface Task {
@@ -133,7 +134,7 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
 
-  // Email & Task State
+  // Drawers & Modals
   const [isEmailOpen, setIsEmailOpen] = useState(false);
   const [emailData, setEmailData] = useState({
     to: "",
@@ -143,12 +144,19 @@ export default function Dashboard() {
   });
   const [isSending, setIsSending] = useState(false);
   const [expandedLogId, setExpandedLogId] = useState<number | null>(null);
+
   const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(false);
   const [activeTaskClient, setActiveTaskClient] = useState<Client | null>(null);
   const [clientTasks, setClientTasks] = useState<Task[]>([]);
   const [newTaskInput, setNewTaskInput] = useState("");
   const [newTaskDesc, setNewTaskDesc] = useState("");
   const [newTaskDate, setNewTaskDate] = useState("");
+
+  // ✅ NEW ASSET VAULT STATE
+  const [isAssetsOpen, setIsAssetsOpen] = useState(false);
+  const [activeAssetClient, setActiveAssetClient] = useState<Client | null>(
+    null
+  );
 
   // --- DARK MODE ---
   useEffect(() => {
@@ -217,9 +225,9 @@ export default function Dashboard() {
 
   const handleLogout = async () => await supabase.auth.signOut();
 
-  // --- HELPERS (Keep these here for now or move to utilities later) ---
+  // --- HELPERS ---
   const saveSettings = async () => {
-    /* ... (Same as before) ... */ setIsSaving(true);
+    setIsSaving(true);
     if (settings.id) {
       await supabase
         .from("settings")
@@ -468,14 +476,12 @@ export default function Dashboard() {
 
   if (sessionLoading)
     return (
-      <div className="h-screen flex items-center justify-center bg-(--bg-main)">
+      <div className="h-screen flex items-center justify-center bg-[var(--bg-main)]">
         <Loader2 className="animate-spin text-blue-600" />
       </div>
     );
   if (!session) return <AuthScreen />;
 
-  // --- MAIN FILTER LOGIC ---
-  // Only show "Clients" in the client tab, and "Leads" in the leads tab
   const displayedClients = clients.filter(
     (c) =>
       c.type !== "lead" &&
@@ -483,8 +489,7 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden font-sans relative transition-colors duration-300 bg-(--bg-main) text-(--text-main)">
-      {/* 1. SIDEBAR (Component) */}
+    <div className="flex h-screen overflow-hidden font-sans relative transition-colors duration-300 bg-[var(--bg-main)] text-[var(--text-main)]">
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -496,7 +501,7 @@ export default function Dashboard() {
         companyName={settings.company_name}
       />
 
-      {/* 2. TASK DRAWER (Keep inline for now as it shares state heavily) */}
+      {/* TASK DRAWER */}
       {isTaskDrawerOpen && activeTaskClient && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div
@@ -516,7 +521,7 @@ export default function Dashboard() {
                 <X size={20} className="text-sub" />
               </button>
             </div>
-            <div className="mb-6 space-y-3 p-4 rounded-xl border border-(--border) bg-(--bg-main)">
+            <div className="mb-6 space-y-3 p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-main)]">
               <input
                 type="text"
                 placeholder="Task Title..."
@@ -546,14 +551,14 @@ export default function Dashboard() {
                   key={task.id}
                   className={`p-3 rounded-lg border group transition-all ${
                     task.is_completed
-                      ? "bg-(--bg-main) opacity-70"
+                      ? "bg-[var(--bg-main)] opacity-70"
                       : "card-base hover:border-blue-500 shadow-sm"
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     <button
                       onClick={() => toggleTask(task)}
-                      className="mt-1 shrink-0 text-sub hover:text-blue-500"
+                      className="mt-1 flex-shrink-0 text-sub hover:text-blue-500"
                     >
                       {task.is_completed ? (
                         <CheckSquare size={20} className="text-green-500" />
@@ -590,7 +595,15 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 3. EMAIL MODAL (Inline) */}
+      {/* ✅ ASSET VAULT DRAWER */}
+      {isAssetsOpen && activeAssetClient && (
+        <AssetsManager
+          client={activeAssetClient}
+          onClose={() => setIsAssetsOpen(false)}
+        />
+      )}
+
+      {/* EMAIL MODAL */}
       {isEmailOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="card-base rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4">
@@ -624,7 +637,7 @@ export default function Dashboard() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setIsEmailOpen(false)}
-                className="px-4 py-2 bg-(--bg-main) rounded text-sub hover:opacity-80"
+                className="px-4 py-2 bg-[var(--bg-main)] rounded text-sub hover:opacity-80"
               >
                 Cancel
               </button>
@@ -670,7 +683,7 @@ export default function Dashboard() {
               <img
                 src={settings.avatar_url}
                 alt="Profile"
-                className="w-10 h-10 rounded-full border border-(--border) object-cover"
+                className="w-10 h-10 rounded-full border border-[var(--border)] object-cover"
               />
             ) : (
               <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600">
@@ -699,9 +712,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* --- TABS --- */}
-
-        {/* 1. DASHBOARD */}
+        {/* TABS */}
         {activeTab === "dashboard" && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -753,7 +764,7 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-7 gap-6">
-              <div className="card-base p-6 rounded-xl shadow-sm lg:col-span-4 flex flex-col h-150">
+              <div className="card-base p-6 rounded-xl shadow-sm lg:col-span-4 flex flex-col h-[600px]">
                 <h3 className="font-semibold mb-6">Revenue by Service</h3>
                 <div className="flex-1 min-h-0">
                   <ResponsiveContainer width="100%" height="100%">
@@ -794,8 +805,8 @@ export default function Dashboard() {
                   </ResponsiveContainer>
                 </div>
               </div>
-              <div className="lg:col-span-3 flex flex-col h-150 card-base rounded-xl shadow-sm overflow-hidden">
-                <div className="flex border-b border-(--border) divide-x divide-(--border) bg-(--bg-main)">
+              <div className="lg:col-span-3 flex flex-col h-[600px] card-base rounded-xl shadow-sm overflow-hidden">
+                <div className="flex border-b border-[var(--border)] divide-x divide-[var(--border)] bg-[var(--bg-main)]">
                   <div className="flex-1 p-3 text-center">
                     <span className="block text-xs text-sub uppercase font-bold tracking-wider">
                       Active
@@ -840,7 +851,7 @@ export default function Dashboard() {
                         return (
                           <div
                             key={task.id}
-                            className="p-3 bg-(--bg-main) rounded-lg border border-(--border) hover:border-blue-500 transition-colors cursor-pointer group"
+                            className="p-3 bg-[var(--bg-main)] rounded-lg border border-[var(--border)] hover:border-blue-500 transition-colors cursor-pointer group"
                             onClick={() => {
                               const client = clients.find(
                                 (c) => c.id === task.client_id
@@ -898,7 +909,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* 2. LEADS TAB (Imported Component) */}
+        {/* LEADS TAB */}
         {activeTab === "leads" && (
           <LeadsView
             leads={clients.filter((c) => c.type === "lead")}
@@ -906,7 +917,7 @@ export default function Dashboard() {
           />
         )}
 
-        {/* 3. CLIENTS TAB */}
+        {/* CLIENTS TAB */}
         {activeTab === "clients" && (
           <div className="space-y-4">
             <div className="flex flex-col md:flex-row gap-4 justify-between items-center card-base p-4 rounded-xl shadow-sm">
@@ -935,8 +946,8 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="card-base rounded-xl shadow-sm overflow-hidden overflow-x-auto">
-              <table className="w-full text-left text-sm min-w-250">
-                <thead className="bg-(--bg-main) text-sub">
+              <table className="w-full text-left text-sm min-w-[1000px]">
+                <thead className="bg-[var(--bg-main)] text-sub">
                   <tr>
                     <th className="px-6 py-4">Client</th>
                     <th className="px-6 py-4">Service</th>
@@ -945,11 +956,11 @@ export default function Dashboard() {
                     <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-(--border)">
+                <tbody className="divide-y divide-[var(--border)]">
                   {displayedClients.map((client) => (
                     <tr
                       key={client.id}
-                      className="hover:bg-(--bg-main) transition-colors"
+                      className="hover:bg-[var(--bg-main)] transition-colors"
                     >
                       {editingId === client.id ? (
                         <td className="px-6 py-4" colSpan={5}>
@@ -1096,7 +1107,7 @@ export default function Dashboard() {
                               )}
                               {client.notes && (
                                 <span
-                                  className="flex items-center gap-1 text-sub mt-1 max-w-37.5 truncate"
+                                  className="flex items-center gap-1 text-sub mt-1 max-w-[150px] truncate"
                                   title={client.notes}
                                 >
                                   <StickyNote size={12} /> {client.notes}
@@ -1114,6 +1125,17 @@ export default function Dashboard() {
                             </span>
                           </td>
                           <td className="px-6 py-4 text-right flex justify-end gap-2">
+                            {/* ✅ NEW ASSETS BUTTON */}
+                            <button
+                              onClick={() => {
+                                setActiveAssetClient(client);
+                                setIsAssetsOpen(true);
+                              }}
+                              className="text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 p-2 rounded"
+                              title="Asset Vault"
+                            >
+                              <LinkIcon size={16} />
+                            </button>
                             <button
                               onClick={() => openTaskDrawer(client)}
                               className="text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 p-2 rounded"
@@ -1133,7 +1155,7 @@ export default function Dashboard() {
                                 setEditingId(client.id);
                                 setEditFormData(client);
                               }}
-                              className="text-sub hover:bg-(--bg-main) p-2 rounded"
+                              className="text-sub hover:bg-[var(--bg-main)] p-2 rounded"
                               title="Edit"
                             >
                               <Pencil size={16} />
@@ -1175,11 +1197,11 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* 4. HISTORY TAB */}
+        {/* HISTORY TAB */}
         {activeTab === "history" && (
           <div className="card-base rounded-xl shadow-sm overflow-hidden">
             <table className="w-full text-left text-sm">
-              <thead className="bg-(--bg-main) text-sub">
+              <thead className="bg-[var(--bg-main)] text-sub">
                 <tr>
                   <th className="px-6 py-4">Date</th>
                   <th className="px-6 py-4">To</th>
@@ -1187,7 +1209,7 @@ export default function Dashboard() {
                   <th className="px-6 py-4 w-10"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-(--border)">
+              <tbody className="divide-y divide-[var(--border)]">
                 {emailLogs.map((log) => (
                   <React.Fragment key={log.id}>
                     <tr
@@ -1196,7 +1218,7 @@ export default function Dashboard() {
                           expandedLogId === log.id ? null : log.id
                         )
                       }
-                      className="hover:bg-(--bg-main) transition-colors cursor-pointer"
+                      className="hover:bg-[var(--bg-main)] transition-colors cursor-pointer"
                     >
                       <td className="px-6 py-4">
                         {new Date(log.created_at).toLocaleDateString()}
@@ -1212,7 +1234,7 @@ export default function Dashboard() {
                       </td>
                     </tr>
                     {expandedLogId === log.id && (
-                      <tr className="bg-(--bg-main)">
+                      <tr className="bg-[var(--bg-main)]">
                         <td
                           colSpan={4}
                           className="px-6 py-4 text-sub font-mono text-xs p-4 whitespace-pre-wrap"
@@ -1228,7 +1250,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* 5. SETTINGS TAB */}
+        {/* SETTINGS TAB */}
         {activeTab === "settings" && (
           <div className="max-w-2xl card-base p-8 rounded-xl shadow-sm">
             <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
@@ -1239,7 +1261,7 @@ export default function Dashboard() {
                 <img
                   src={settings.avatar_url}
                   alt="Profile"
-                  className="w-20 h-20 rounded-full border border-(--border) object-cover"
+                  className="w-20 h-20 rounded-full border border-[var(--border)] object-cover"
                 />
               ) : (
                 <div className="w-20 h-20 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">

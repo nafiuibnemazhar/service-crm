@@ -88,7 +88,7 @@ export default function AssetsManager({ client, onClose }: Props) {
             </h2>
             <p className="text-sub text-sm">
               Managing assets for{" "}
-              <span className="font-semibold text-[var(--text-main)]">
+              <span className="font-semibold text-(--text-main)">
                 {client.name}
               </span>
             </p>
@@ -102,7 +102,7 @@ export default function AssetsManager({ client, onClose }: Props) {
         </div>
 
         {/* Add New Asset Form */}
-        <div className="mb-6 space-y-3 p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-main)] shadow-sm">
+        <div className="mb-6 space-y-3 p-4 rounded-xl border border-(--border) bg-(--bg-main) shadow-sm">
           <h3 className="text-xs font-bold text-sub uppercase tracking-wider mb-2">
             Add New Asset
           </h3>
@@ -119,7 +119,7 @@ export default function AssetsManager({ client, onClose }: Props) {
             <input
               type="text"
               placeholder="URL (https://...)"
-              className="w-full p-2 rounded-lg text-sm input-base focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs"
+              className="w-full p-2 rounded-lg input-base focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs"
               value={newAsset.url}
               onChange={(e) =>
                 setNewAsset({ ...newAsset, url: e.target.value })
@@ -148,7 +148,7 @@ export default function AssetsManager({ client, onClose }: Props) {
           {assets.map((asset) => (
             <div
               key={asset.id}
-              className="p-4 rounded-xl border border-[var(--border)] card-base hover:border-blue-500 transition-all group shadow-sm"
+              className="p-4 rounded-xl border border-(--border) card-base hover:border-blue-500 transition-all group shadow-sm"
             >
               <div className="flex justify-between items-start mb-2">
                 <h4 className="font-bold text-sm flex items-center gap-2">
@@ -168,7 +168,7 @@ export default function AssetsManager({ client, onClose }: Props) {
               </div>
 
               {asset.url && (
-                <div className="flex items-center gap-2 mb-2 p-2 bg-[var(--bg-main)] rounded border border-[var(--border)]">
+                <div className="flex items-center gap-2 mb-2 p-2 bg-(--bg-main) rounded border border-(--border)">
                   <p className="text-xs text-sub truncate flex-1 font-mono">
                     {asset.url}
                   </p>
@@ -197,7 +197,7 @@ export default function AssetsManager({ client, onClose }: Props) {
                     className={`text-xs p-2 rounded font-mono cursor-pointer transition-colors ${
                       showPass === asset.id
                         ? "bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300"
-                        : "bg-[var(--bg-main)] text-sub blur-sm hover:blur-none"
+                        : "bg-(--bg-main) text-sub blur-sm hover:blur-none"
                     }`}
                     onClick={() =>
                       setShowPass(showPass === asset.id ? null : asset.id)
